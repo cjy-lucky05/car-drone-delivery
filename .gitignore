@@ -49,3 +49,8 @@ passwd
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 外部源码压缩包（含他人代码，非本仓库产出）
+ros_interface*
+*.tar.gz
+*.zip
