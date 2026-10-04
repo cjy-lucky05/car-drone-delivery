@@ -123,6 +123,11 @@ def main():
     args = ap.parse_args()
 
     cfg = DEVICES[args.role]
+    # ★ 没读到密码就直接报错退出（不静默用空密码，否则只表现为"认证失败"，难排查）
+    if not cfg["password"]:
+        print(f"⚠️ 角色 {args.role} 未读到密码！请复制 config.example.py 为 config_local.py，"
+              f"并填写 MQTT_PASS_{args.role.upper()}")
+        sys.exit(1)
     did = cfg["device_id"]
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=did)
