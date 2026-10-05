@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+
+<launch>
+    <!-- =========================
+         机器人坐标系参数
+         ========================= -->
+    <arg name="base_frame" default="base_footprint"/>   <!-- 机器人底盘坐标系 -->
+    <arg name="odom_frame" default="odom"/>             <!-- 里程计坐标系 -->
+    <arg name="imu_frame" default="imu"/>               <!-- IMU 坐标系 -->
+
+    <!-- =========================
+         发布主题参数
+         ========================= -->
+    <arg name="odom_topic" default="odom"/>             <!-- 发布里程计主题，注意不要加 '/' 前缀 -->
+    <arg name="imu_topic" default="imu"/>               <!-- 发布 IMU 数据主题 -->
+    <arg name="battery_topic" default="battery"/>       <!-- 发布电池电量主题 -->
+
+    <!-- =========================
+         订阅主题参数
+         ========================= -->
+    <arg name="cmd_vel_topic" default="cmd_vel"/>       <!-- 订阅速度控制命令，注意不要加 '/' 前缀 -->
+    <arg name="ackermann_cmd_topic" default="ackermann_cmd"/> <!-- 订阅 Ackermann 控制命令 -->
+
+    <!-- =========================
+         配置开关参数
+         ========================= -->
+    <arg name="pub_imu" default="False"/>              <!-- 是否发布 IMU 数据 -->
+    <arg name="sub_ackermann" default="False"/>        <!-- 是否订阅 Ackermann 控制命令 -->
+    <arg name="pub_sonar" default="False"/>            <!-- 是否发布声呐数据 -->
+
+    <!-- =========================
+         基础控制节点
+         ========================= -->
+    <node name="" pkg="wd_base_control" type="wd_base_control" output="screen">
+
+        <!-- ★★★ 本项目新增（2026-10-04）★★★ -->
+        <!-- 本节点发的关节状态是【度】（舵机角度制），而 MoveIt/URDF 要【弧度】。
+             把话题改名成 joint_states_deg，由 joint_deg2rad.py 读它并转成弧度，
+             再以 /joint_states 发布给 MoveIt。
+             —— 不修改任何 C++ 代码，仅重命名话题；删掉本行即可完全回退。 -->
+        <remap from="joint_states" to="joint_states_deg"/>
+
+        <!-- 串口配置 -->
+        <param name="baudrate" value="115200"/>
+        <param name="port" value='/dev/move_base'/>   <!-- 串口设备 -->
+
+        <!-- 坐标系ID -->
+        <param name="base_id" value="$(arg base_frame)"/>   <!-- 机器人底盘坐标 -->
+        <param name="odom_id" value="$(arg odom_frame)"/>   <!-- 里程计坐标 -->
+        <param name="imu_id" value="$(arg imu_frame)"/>     <!-- IMU 坐标 -->
+
+        <!-- 发布主题 -->
+        <param name="odom_topic" value="$(arg odom_topic)"/>
+        <param name="imu_topic" value="$(arg imu_topic)"/>
+        <param name="battery_topic" value="$(arg battery_topic)"/>
+
+        <!-- 订阅主题 -->
+        <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+        <param name="ackermann_cmd_topic" value="$(arg ackermann_cmd_topic)"/>
+
+        <!-- 功能开关 -->
+        <param name="pub_imu" value="$(arg pub_imu)"/>
+        <param name="pub_sonar" value="$(arg pub_sonar)"/>
+        <param name="sub_ackermann" value="$(arg sub_ackermann)"/>
+    </node>
+
+</launch>

@@ -1,0 +1,6 @@
+# web平台 依赖（Python 3.8+）
+# 安装（不动系统 Python）：
+#   pip3 install --target=<项目>/libs fastapi "uvicorn[standard]" paho-mqtt
+fastapi>=0.100,<1
+uvicorn[standard]>=0.23,<1
+paho-mqtt>=2.0,<3

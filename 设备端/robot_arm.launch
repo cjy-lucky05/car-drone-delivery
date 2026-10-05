@@ -1,0 +1,28 @@
+<launch>
+    <!-- ================================================================
+         小车端 · 机械臂全套（等价于 bringup.launch，但【不开 RViz】）
+         ================================================================
+         ① demo.launch     → MoveIt(move_group) + SimulationToMachine + robot_state_publisher
+         ② wd_vision       → AR 码识别
+         ③ ★ moveit_pose    → 接收 target_named / target_pose
+
+         ★ 单位转换说明：
+           驱动节点发的关节状态是【度】，MoveIt 要【弧度】。
+           重命名工作已放到 base_control.launch（remap joint_states → joint_states_deg），
+           由 joint_deg2rad.py 转换后再以 /joint_states 发布。
+           （★ 不要再在这里加 remap —— roslaunch 的 remap 穿不透嵌套的 include，
+             在 demo.launch 外层加是无效的，试过了。）
+    -->
+
+    <!-- ① 机械臂核心（use_rviz=false：关掉它自己的 RViz，避免和导航的 RViz 混淆）-->
+    <include file="$(find wd_arm_moveit_demo)/launch/demo.launch">
+        <arg name="use_rviz" value="false"/>
+    </include>
+
+    <!-- ② 视觉（AR 码识别）-->
+    <include file="$(find wd_vision)/launch/bringup.launch"/>
+
+    <!-- ③ ★ 接收机械臂命名姿态的节点 -->
+    <node name="moveit_pose" pkg="wd_arm_moveit_demo" type="moveit_pose.py"
+          output="screen" respawn="true"/>
+</launch>

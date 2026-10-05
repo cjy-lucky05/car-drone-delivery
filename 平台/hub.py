@@ -29,6 +29,14 @@ _LOCAL_LIBS = "/root/chenjiayu/libs"
 if os.path.isdir(_LOCAL_LIBS) and _LOCAL_LIBS not in sys.path:
     sys.path.insert(0, _LOCAL_LIBS)
 
+# ★ 让脚本找到 web平台/server/db.py（数据库访问层）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in ("/root/chenjiayu/web平台/server",
+           os.path.join(_HERE, "..", "web平台", "server"),
+           os.path.join(_HERE, "web平台", "server")):
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
 # ★ 让日志实时输出（否则 nohup 重定向到文件时会被块缓冲，看不到输出）
 try:
     sys.stdout.reconfigure(line_buffering=True)
@@ -37,6 +45,13 @@ except Exception:
     pass
 
 import paho.mqtt.client as mqtt
+
+# ★ 数据库访问层（web平台/server/db.py）—— 状态持久化改用 SQLite
+try:
+    import db as _db
+except ImportError:
+    print("[平台] ⚠️ 找不到 db.py！请确认 web平台/server/ 在 sys.path 里")
+    raise
 
 # ==================== 配置 ====================
 # ---- 配置读取：优先 config_local.py，其次环境变量（★ 明文密码不进仓库）----
@@ -57,7 +72,8 @@ if not PASSWORD:
     print("[平台] ⚠️ 未读到密码！请复制 config.example.py 为 config_local.py 并填写 MQTT_PASS_HUB")
     sys.exit(1)
 
-STATE_FILE = "/root/chenjiayu/platform_state.json"   # 状态持久化
+STATE_FILE = "/root/chenjiayu/platform_state.json"   # （旧）JSON 状态文件 —— 已改用 SQLite
+# ★ 数据库文件位置：环境变量 DELIVERY_DB 优先，默认 web平台/data/delivery.db
 
 # 站点 → 负责的小车（阶段 2 先用"固定分工"，后面升级成动态分配）
 SITE_TO_CAR = {
@@ -87,23 +103,51 @@ class Platform:
 
     # ---------- 状态持久化 ----------
     def _load(self):
+        """★ 从 SQLite 数据库重建内存状态（取代原来的 JSON 文件）"""
         try:
-            with open(STATE_FILE, encoding="utf-8") as f:
-                d = json.load(f)
-            self.slots = d.get("slots", {})
-            self.tasks = d.get("tasks", {})
-            self.queue = d.get("queue", {})
-            self.task_seq = d.get("task_seq", 0)
-            print(f"[平台] 已加载状态：库位 {len(self.slots)} 个，任务 {len(self.tasks)} 个")
-        except FileNotFoundError:
-            print("[平台] 首次启动，状态为空")
+            _db.init_db()                       # 建表（幂等）
+            for r in _db.list_slots():
+                self.slots[r["slot_id"]] = {
+                    "site": r["site"], "occupied": bool(r["occupied"]),
+                    "count": r["count"] or 0, "task_id": r["task_id"],
+                    "ts": r["updated_at"] or 0}
+            for r in _db.list_tasks(limit=100000):
+                self.tasks[r["task_id"]] = {
+                    "task_id": r["task_id"], "site": r["site"], "slot": r["slot"],
+                    "count": r["count"], "car_id": r["car_id"], "status": r["status"],
+                    "created": r["created_at"] or 0, "updated": r["updated_at"] or 0}
+                try:
+                    self.task_seq = max(self.task_seq, int(str(r["task_id"]).lstrip("T")))
+                except Exception:
+                    pass
+            for r in _db.list_queue():          # 按 id 升序 = 保持 FIFO 顺序
+                self.queue.setdefault(r["site"], []).append(r["task_id"])
+            for r in _db.list_devices():
+                self.devices[r["device_id"]] = {
+                    "role": r["role"], "online": False,
+                    "busy": (r["status"] == "busy"), "last_seen": r["last_seen"] or 0}
+            print(f"[平台] 已从数据库加载：库位 {len(self.slots)} 个，任务 {len(self.tasks)} 个，"
+                  f"设备 {len(self.devices)} 个")
+        except Exception as e:
+            print(f"[平台] ⚠️ 数据库加载失败（将以空状态启动）：{e}")
 
     def _save(self):
+        """★ 把内存状态写回 SQLite（库位 + 任务 + 队列 + 设备）"""
         try:
-            with open(STATE_FILE, "w", encoding="utf-8") as f:
-                json.dump({"slots": self.slots, "tasks": self.tasks,
-                           "queue": self.queue, "task_seq": self.task_seq}, f,
-                          ensure_ascii=False, indent=2)
+            for sid, s in self.slots.items():
+                _db.upsert_slot(sid, s.get("site", sid[0]), bool(s.get("occupied")),
+                                int(s.get("count", 0) or 0), s.get("task_id"))
+            for tid, t in self.tasks.items():
+                _db.upsert_task(tid, t.get("site", ""), t.get("slot", ""),
+                                int(t.get("count", 0) or 0), t.get("status", "PENDING_PICK"),
+                                t.get("car_id"))
+            items = []
+            for site, tids in self.queue.items():
+                for tid in tids:
+                    items.append((site, tid))
+            _db.replace_queue(items)
+            for did, d in self.devices.items():
+                _db.upsert_device(did, d.get("role", ""), "busy" if d.get("busy") else "idle")
         except Exception as e:
             print(f"[平台] ⚠️ 状态保存失败：{e}")
 
@@ -179,6 +223,10 @@ class Platform:
                     continue
                 t["car_id"] = car_id
                 t["status"] = "DISPATCHED"
+                try:
+                    _db.update_task(tid, assigned_at=int(time.time()))   # ★ 派单时间
+                except Exception:
+                    pass
                 info["busy"] = True
                 print(f"[平台] 派单 {tid}（站点{site} 库位 {t['slot']}）→ {car_id}"
                       f"（该站点队列还剩 {len(q)} 个）")
@@ -223,6 +271,11 @@ class Platform:
         info = self.devices.setdefault(device_id, {"role": role, "busy": False})
         info.update({"role": role, "online": True, "last_seen": int(time.time())})
         event = data.get("event")
+        # ★ 所有上报都记进事件表（论文统计的数据源：成功率/耗时/事件轨迹）
+        try:
+            _db.log_event(device_id, event or "unknown", data)
+        except Exception:
+            pass
         if event == "selftest":
             return                      # 设备自检事件，忽略
 
@@ -294,6 +347,10 @@ class Platform:
             if task:
                 self.slot_clear(task["slot"])
                 self.set_task_status(tid, "DELIVERING")
+                try:
+                    _db.update_task(tid, picked_at=int(time.time()))     # ★ 取货完成时间
+                except Exception:
+                    pass
                 print(f"[平台] 小车 {device_id} 已取走 {task['slot']}（{task['count']} 件）"
                       f"→ 库位置空，任务 {tid} 进入配送")
                 self.pub_cmd(client, device_id, {"cmd": "deliver", "task_id": tid,
@@ -307,6 +364,10 @@ class Platform:
         if event == "delivered":
             tid = data.get("task_id")
             self.set_task_status(tid, "DONE")
+            try:
+                _db.update_task(tid, delivered_at=int(time.time()))      # ★ 送达时间
+            except Exception:
+                pass
             self.devices[device_id]["busy"] = False     # ★ 车空闲了
             print(f"[平台] 小车 {device_id} 已送达，任务 {tid} 完成 ✓")
             self._save()

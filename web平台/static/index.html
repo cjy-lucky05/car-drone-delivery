@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>车-机协同末端配送 · 监控台</title>
+<style>
+/* ★ 深色工业风：只改背景色系，不用任何 UI 框架的 dark 主题 */
+:root{
+  --bg:#0f1115; --card:#1a1d23; --card2:#15181d; --line:#2a2f38;
+  --fg:#e6e6e6; --fg2:#8b949e; --ok:#3fb950; --info:#58a6ff;
+  --warn:#d29922; --err:#f85149; --mono:"Consolas","Menlo",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Microsoft YaHei",sans-serif;padding:16px}
+h1{font-size:17px;font-weight:600;letter-spacing:.5px}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;
+     padding-bottom:12px;border-bottom:1px solid var(--line)}
+.badge{font:12px var(--mono);padding:3px 9px;border-radius:4px;border:1px solid var(--line)}
+.badge.on{color:var(--ok);border-color:var(--ok)}
+.badge.off{color:var(--err);border-color:var(--err)}
+.bar{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.bar .it{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:11px 13px}
+.bar .k{font-size:11px;color:var(--fg2);letter-spacing:.5px}
+.bar .v{font:600 21px var(--mono);margin-top:3px}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:14px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}.bar{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.card h2{font-size:13px;font-weight:600;color:var(--fg2);padding:10px 13px;
+         border-bottom:1px solid var(--line);background:var(--card2);letter-spacing:.5px}
+.card .body{padding:12px 13px}
+.slots{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.slot{border:1px solid var(--line);border-radius:5px;padding:11px;text-align:center;background:var(--card2)}
+.slot .id{font:600 14px var(--mono);color:var(--fg)}
+.slot .st{font-size:11px;margin-top:5px;color:var(--fg2)}
+.slot.occ{border-color:var(--warn)}
+.slot.occ .st{color:var(--warn)}
+.slot.free .st{color:var(--ok)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--fg2);font-weight:500;padding:7px 9px;border-bottom:1px solid var(--line);font-size:11px}
+td{padding:7px 9px;border-bottom:1px solid #21252c;font-family:var(--mono);font-size:12px}
+tr:last-child td{border-bottom:none}
+.tag{display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;border:1px solid}
+.t-DONE{color:var(--ok);border-color:var(--ok)}
+.t-PENDING,.t-ASSIGNED{color:var(--warn);border-color:var(--warn)}
+.t-PICKING,.t-DELIVERING{color:var(--info);border-color:var(--info)}
+.t-FAILED{color:var(--err);border-color:var(--err)}
+.ops{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px}
+input,select,button{background:var(--card2);color:var(--fg);border:1px solid var(--line);
+  border-radius:4px;padding:7px 10px;font:13px var(--mono);outline:none}
+input:focus,select:focus{border-color:var(--info)}
+button{background:#21262d;cursor:pointer;transition:.15s}
+button:hover{border-color:var(--info);color:#fff}
+button.p{background:#1f6feb;border-color:#1f6feb;color:#fff}
+button.p:hover{background:#2b7bf3}
+.log{font:11.5px/1.7 var(--mono);color:var(--fg2);max-height:210px;overflow-y:auto}
+.log div{border-bottom:1px solid #191c21;padding:2px 0}
+.log b{color:var(--info);font-weight:500}
+.foot{margin-top:14px;text-align:center;color:#5a6270;font-size:11.5px}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>车-机协同末端配送 · 监控台</h1>
+  <span id="conn" class="badge off">连接中…</span>
+</div>
+
+<div class="bar">
+  <div class="it"><div class="k">在线设备</div><div class="v" id="m-dev">-</div></div>
+  <div class="it"><div class="k">待处理任务</div><div class="v" id="m-queue">-</div></div>
+  <div class="it"><div class="k">已完成</div><div class="v" id="m-done">-</div></div>
+  <div class="it"><div class="k">成功率</div><div class="v" id="m-rate">-</div></div>
+  <div class="it"><div class="k">平均耗时</div><div class="v" id="m-avg">-</div></div>
+</div>
+
+<div class="grid">
+  <div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>库位状态</h2>
+      <div class="body"><div class="slots" id="slots"><span style="color:#5a6270">暂无数据</span></div></div>
+    </div>
+    <div class="card">
+      <h2>设备</h2>
+      <div class="body" id="devs"><span style="color:#5a6270">暂无数据</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>任务列表（最近 20 条）</h2>
+      <div class="body" style="padding:0">
+        <table><thead><tr>
+          <th>任务号</th><th>站点</th><th>库位</th><th>车</th><th>状态</th><th>耗时</th><th>创建</th>
+        </tr></thead><tbody id="tasks"><tr><td colspan="7" style="color:#5a6270">暂无数据</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>操作 / 事件日志</h2>
+      <div class="body">
+        <div class="ops">
+          <select id="o-target"><option value="car-01">car-01</option><option value="nx-01">nx-01</option></select>
+          <select id="o-cmd">
+            <option value="goto_pick">goto_pick（派小车取货）</option>
+            <option value="goto_deliver">goto_deliver（派小车送达）</option>
+            <option value="ask_slot">ask_slot（问库位）</option>
+            <option value="start">start（启动/唤醒）</option>
+          </select>
+          <input id="o-site" placeholder="站点" value="1" size="4">
+          <input id="o-slot" placeholder="库位" value="1A" size="5">
+          <button class="p" onclick="sendCmd()">发送指令</button>
+          <button onclick="load()">手动刷新</button>
+        </div>
+        <div class="log" id="log"><div>等待事件…</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">车-机协同末端配送系统｜陈嘉誉｜每 2 秒自动刷新</div>
+
+<script>
+const API = "";   // 同源部署留空；跨域部署填 "http://服务器IP:8000"
+
+function fmtTs(ts){
+  if(!ts) return "-";
+  const d = new Date(ts*1000);
+  const p = n => String(n).padStart(2,"0");
+  return p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+}
+function dur(t){
+  if(!t) return "-";
+  const ms = Date.now()/1000 - t;
+  if(ms < 60) return Math.round(ms)+"s";
+  if(ms < 3600) return Math.round(ms/60)+"min";
+  return Math.round(ms/3600)+"h";
+}
+
+async function load(){
+  try{
+    const r = await fetch(API + "/api/status");
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const d = await r.json();
+    document.getElementById("conn").className = "badge on";
+    document.getElementById("conn").textContent = "已连接";
+    render(d);
+  }catch(e){
+    const c = document.getElementById("conn");
+    c.className = "badge off"; c.textContent = "连接失败";
+  }
+}
+
+function render(d){
+  const s = d.stats || {};
+  document.getElementById("m-dev").textContent   = (d.devices||[]).length;
+  document.getElementById("m-queue").textContent = d.queue_size ?? 0;
+  document.getElementById("m-done").textContent  = s.tasks_done ?? 0;
+  document.getElementById("m-rate").textContent  = (s.success_rate==null? "-" : s.success_rate+"%");
+  document.getElementById("m-avg").textContent   = (s.avg_duration_sec==null? "-" : s.avg_duration_sec+"s");
+
+  // 库位
+  const sl = d.slots || [];
+  document.getElementById("slots").innerHTML = sl.length ? sl.map(x =>
+    `<div class="slot ${x.occupied? "occ":"free"}">
+       <div class="id">${x.slot_id}</div>
+       <div class="st">${x.occupied? ("占用 ×"+x.count) : "空"}</div>
+     </div>`).join("") : '<span style="color:#5a6270">暂无库位</span>';
+
+  // 设备
+  const dv = d.devices || [];
+  document.getElementById("devs").innerHTML = dv.length ? dv.map(x =>
+    `<div style="display:flex;justify-content:space-between;padding:4px 0;font-family:var(--mono);font-size:12px">
+       <span>${x.device_id} <span style="color:#5a6270">(${x.role})</span></span>
+       <span style="color:${x.status==='idle'?'var(--ok)':'var(--warn)'}">${x.status||'-'}</span>
+     </div>`).join("") : '<span style="color:#5a6270">暂无设备上报</span>';
+
+  // 任务
+  const tk = d.tasks || [];
+  document.getElementById("tasks").innerHTML = tk.length ? tk.map(x =>
+    `<tr>
+       <td>${x.task_id}</td><td>${x.site||'-'}</td><td>${x.slot||'-'}</td>
+       <td>${x.car_id||'-'}</td>
+       <td><span class="tag t-${x.status}">${x.status||'-'}</span></td>
+       <td>${x.delivered_at&&x.created_at? (x.delivered_at-x.created_at)+"s" : dur(x.created_at)}</td>
+       <td>${fmtTs(x.created_at)}</td>
+     </tr>`).join("") : '<tr><td colspan="7" style="color:#5a6270">暂无任务</td></tr>';
+}
+
+async function sendCmd(){
+  const body = {
+    target: document.getElementById("o-target").value,
+    cmd:    document.getElementById("o-cmd").value,
+    site:   document.getElementById("o-site").value,
+    slot:   document.getElementById("o-slot").value,
+    count:  1
+  };
+  const r = await fetch(API + "/api/cmd", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)
+  });
+  const j = await r.json();
+  addLog((j.ok? "[OK] ":"[失败] ") + body.cmd + " → " + body.target + "　" + (j.detail||""));
+  load();
+}
+
+async function loadEvents(){
+  try{
+    const r = await fetch(API + "/api/events?limit=40");
+    const list = await r.json();
+    if(list.length){
+      document.getElementById("log").innerHTML = list.map(e =>
+        `<div><b>${fmtTs(e.ts)}</b> ${e.device} · ${e.event}</div>`).join("");
+    }
+  }catch(e){}
+}
+function addLog(t){
+  const box = document.getElementById("log");
+  const d = document.createElement("div");
+  d.innerHTML = "<b>"+new Date().toLocaleTimeString()+"</b> "+t;
+  box.prepend(d);
+}
+
+load();
+loadEvents();
+setInterval(load, 2000);         // ★ 状态 2 秒刷新
+setInterval(loadEvents, 5000);   // 事件 5 秒刷新
+</script>
+</body>
+</html>

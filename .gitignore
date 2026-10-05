@@ -54,3 +54,14 @@ desktop.ini
 ros_interface*
 *.tar.gz
 *.zip
+
+# ============================================
+# 网页监控台
+# ============================================
+# 数据库文件（运行时产物，每个环境自己生成）
+web平台/data/*.db
+web平台/data/*.db-wal
+web平台/data/*.db-shm
+web平台/logs/
+web平台/scripts/*.pid
+web平台/libs/
