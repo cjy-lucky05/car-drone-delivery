@@ -105,14 +105,34 @@ car-drone-delivery/
 
 ## 快速开始
 
-### 1. 准备配置
+### 1. 准备配置（★ 隐私值外置：只有一份代码，配置文件不进 git）
+
+服务器地址 / 密码 / 地图经纬度等隐私值全部放在**不进 git** 的配置文件里，
+代码里只有占位符（读不到会明确报错，不会静默用空值）。克隆仓库后需要自己建这三份：
+
+| 配置文件 | 放哪 | 装什么 | 模板 |
+|---|---|---|---|
+| `config_local.py` | 项目根 / 各设备端目录 | MQTT 服务器地址 + 各账号密码 | ✅ `config.example.py` |
+| `web平台/server/config_local.py` | 网页后端目录 | 同上（后端连本机 broker） | ✅ `web平台/server/config.example.py` |
+| `web平台/static/config_local.js` | 网页静态目录 | 地图中心 + 站点经纬度（场地私有） | 新建，格式见下 |
 
 ```bash
-cp config.example.py config_local.py
-# 编辑 config_local.py，填入 MQTT 服务器地址和各账号密码
+cp config.example.py config_local.py                            # ① 设备端
+cp web平台/server/config.example.py web平台/server/config_local.py   # ② 网页后端
+# 然后编辑这两份，填真实值
 ```
-> `config_local.py` 已在 `.gitignore` 中，**不会被提交**。
-> 每台机器（PC / 服务器 / 机载端 / 小车）各放一份自己的。
+
+`web平台/static/config_local.js`（不建也行，网页会退回 index.html 里的占位坐标）：
+```javascript
+window.MAP_CFG = {
+  center:    [34.3416, 108.9398],                                  // 校区经纬度
+  sites_geo: [{ n: "取货点1", lat: 34.3420, lon: 108.9390 }],      // 站点图钉
+  geo_cal:   { x0: 0, y0: 0, lat0: 34.3416, lon0: 108.9398, rot: 0, scale: 1 },
+};
+```
+
+> 三个 `config_local.*` 都在 `.gitignore` 中，**不会被提交**；每台机器（PC / 服务器 / 机载端 / 小车）各放一份自己的。
+> ★ 这是「配置与代码分离」的标准工程做法（12-Factor App），不是"两版代码"—— 跑的就是传的，不会不同步。
 
 ### 2. 启动平台（在服务器上）
 
