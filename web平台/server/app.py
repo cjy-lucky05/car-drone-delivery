@@ -203,6 +203,22 @@ if os.path.isdir(_LIBDIR):
     app.mount("/lib", StaticFiles(directory=_LIBDIR), name="lib")
 
 
+@app.get("/config_local.js")
+def _map_cfg_js():
+    """★★★ 场地私有地图配置（经纬度）—— 文件【不进 git】，每台机器各放一份
+
+    - 存在 → 返回它，前端用它覆盖 index.html 里的占位坐标 ✓
+    - 不存在 → 返回空注释，前端自动退回占位值（不报错）✓
+    """
+    p = os.path.join(STATIC, "config_local.js")
+    if os.path.isfile(p):
+        return FileResponse(p, media_type="application/javascript",
+                            headers={"Cache-Control": "no-cache"})
+    return Response("// config_local.js 不存在 —— 前端用 index.html 里的占位坐标\n",
+                    media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"})
+
+
 # ------------------------------------------------------------------ 页面
 @app.get("/")
 def index():

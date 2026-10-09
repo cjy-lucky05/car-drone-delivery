@@ -2,6 +2,7 @@
 # ★ 敏感信息：绝不提交
 # ============================================
 config_local.py
+web平台/static/config_local.js
 *密码*.txt
 *secret*
 *.pem

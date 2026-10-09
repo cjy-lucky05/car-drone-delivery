@@ -896,6 +896,8 @@ button.b.p:hover{background:var(--primary-d)}
 
 <script src="/lib/leaflet.js"></script>
 <script src="/lib/leaflet-rotate.js"></script>
+<!-- ★ 场地私有经纬度（不进 git；文件不存在也不影响，会用下面的占位值） -->
+<script src="config_local.js"></script>
 <script>
 const API = "";                      // 同源部署留空
 
@@ -2036,20 +2038,23 @@ function fmtTs(ts) {
 
 // ==================== ★ 真实地图（Leaflet + 高德瓦片）====================
 let gmap = null, gmapReady = false, mapMode = "real";
-const G_CENTER = [34.3416, 108.9398];    // ★ 占位坐标（西安市附近）—— 请改成你所在校区的经纬度
+// ★★★ 地图/站点的经纬度属于【场地私有】→ 真值放在不进 git 的 config_local.js
+//     这里只留占位；config_local.js 存在时会自动覆盖 ✓
+const MAP_CFG = (typeof window !== "undefined" && window.MAP_CFG) ? window.MAP_CFG : {};
+const G_CENTER = MAP_CFG.center || [34.3416, 108.9398];   // 占位（西安市附近）
 
 // ★★ 站点经纬度 —— 现在是【占位坐标】，到学校现场改这几个值即可
-const SITES_GEO = [
-  { n: "取货点1", lat: 34.3420, lon: 108.9390 },   // ★ 占位，请现场标定后替换
-  { n: "送达点1", lat: 34.3412, lon: 108.9405 },   // ★ 占位
-  { n: "取货点2", lat: 34.3425, lon: 108.9385 },   // ★ 占位
+const SITES_GEO = MAP_CFG.sites_geo || [           // ★ 占位；真值在 config_local.js
+  { n: "取货点1", lat: 34.3420, lon: 108.9390 },
+  { n: "送达点1", lat: 34.3412, lon: 108.9405 },
+  { n: "取货点2", lat: 34.3425, lon: 108.9385 },
 ];
 
 // ★★ ROS坐标→经纬度 的标定参数（到学校现场标定后填这里；不填就不画车）
 //    x0,y0=标定点的ROS坐标  lat0,lon0=同一点的经纬度  rot=旋转角(弧度)  scale=米/ROS单位
 // ★ 默认标定：ROS 原点(0,0) ↔ 校园中心；到现场用"点地图读经纬度"精确校正即可
 //    x0,y0=标定点的ROS坐标  lat0,lon0=同一点的经纬度  rot=旋转角(弧度)  scale=米/ROS单位
-let GEO_CAL = { x0: 0.0, y0: 0.0, lat0: 34.3416, lon0: 108.9398, rot: 0.0, scale: 1.0 };
+let GEO_CAL = MAP_CFG.geo_cal || { x0: 0.0, y0: 0.0, lat0: 34.3416, lon0: 108.9398, rot: 0.0, scale: 1.0 };   // ★ 真值在 config_local.js
 
 function rosToLatLng(x, y) {
   if (!GEO_CAL) return null;
