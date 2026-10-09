@@ -50,6 +50,9 @@ passwd
 Thumbs.db
 desktop.ini
 
+# 随手记的临时文本（不是项目产物）
+car/新建 文本文档.txt
+
 # 外部源码压缩包（含他人代码，非本仓库产出）
 ros_interface*
 *.tar.gz

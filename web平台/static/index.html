@@ -3,7 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// ★ 错误捕获（放在最前面，任何 JS 错误都显示在页面顶部，方便定位）
+window.__errs = [];
+function __showErr(msg) {
+  window.__errs.push(msg);
+  var d = document.getElementById("__err");
+  if (!d) {
+    d = document.createElement("div");
+    d.id = "__err";
+    d.style.cssText = "position:fixed;left:0;right:0;top:0;background:#f5222d;color:#fff;" +
+      "padding:9px 12px;font:12px/1.5 Consolas,monospace;z-index:99999;white-space:pre-wrap;" +
+      "max-height:40vh;overflow:auto";
+    (document.body || document.documentElement).appendChild(d);
+  }
+  d.textContent = "⚠️ 页面出错（把这段发给开发者）：\n" + window.__errs.join("\n");
+}
+window.onerror = function (m, src, line, col) {
+  __showErr(m + "  @" + String(src || "").split("/").pop() + ":" + line + ":" + col);
+  return false;
+};
+window.addEventListener("unhandledrejection", function (e) {
+  __showErr("Promise: " + (e.reason && (e.reason.message || e.reason)));
+});
+</script>
 <title>校园快递配送站 · 车机协同</title>
+<link rel="stylesheet" href="/lib/leaflet.css">
 <style>
 /* ============================================================
    两套主题：默认菜鸟驿站风（亮色），可一键切到深色工业风
@@ -23,8 +48,11 @@ body[data-theme="dark"]{
   --shadow:none; --head:#1a1d23; --headfg:#e6e6e6;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+html{height:100%}
 body{background:var(--bg);color:var(--fg);transition:background .2s,color .2s;
-     font:14px/1.55 -apple-system,"Microsoft YaHei","PingFang SC",sans-serif}
+     font:14px/1.55 -apple-system,"Microsoft YaHei","PingFang SC",sans-serif;
+     min-height:100vh;display:flex;flex-direction:column;-webkit-text-size-adjust:100%}
+img,svg{max-width:100%}
 
 /* ---------------- 顶部栏 ---------------- */
 header{background:var(--head);color:var(--headfg);padding:13px 20px;
@@ -43,13 +71,24 @@ header .acts{margin-left:auto;display:flex;gap:8px}
 header button{background:rgba(255,255,255,.2);color:var(--headfg);border:none;
   border-radius:16px;padding:6px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap}
 header button:hover{background:rgba(255,255,255,.32)}
+header .uwrap{display:flex;align-items:center;gap:7px;margin-left:8px;color:var(--headfg);
+  font-size:13px;white-space:nowrap}
+header .rolebadge{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:700;
+  background:rgba(255,255,255,.3);color:#fff;border:1px solid rgba(255,255,255,.45)}
+header .rolebadge.adm{background:#fff;color:#0079c2;border-color:#fff}
+body[data-theme="dark"] header .rolebadge{background:#2b7bf3;color:#fff;border-color:#2b7bf3}
+body[data-theme="dark"] header .rolebadge.adm{background:#f0a020;color:#231a00;border-color:#f0a020}
 body[data-theme="dark"] header button{background:var(--card2);border:1px solid var(--line)}
 body[data-theme="dark"] header button:hover{border-color:var(--primary)}
 
-.wrap{padding:16px 20px 26px;max-width:1320px;margin:0 auto}
+.wrap{padding:16px 22px 30px;margin:0 auto;width:100%;max-width:1720px;
+  flex:1 1 auto;display:flex;flex-direction:column}
+.foot{margin-top:auto}
+@media(min-width:1840px){.wrap{max-width:1780px}}
 
 /* ---------------- 数据条 ---------------- */
-.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+  gap:12px;margin-bottom:16px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;
   padding:14px 16px;box-shadow:var(--shadow)}
 .stat .num{font-size:25px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums}
@@ -68,6 +107,36 @@ body[data-theme="dark"] header button:hover{border-color:var(--primary)}
 .card>h2 .cnt{margin-left:auto;font-size:11.5px;color:var(--fg2);font-weight:400}
 .card .body{padding:14px 15px}
 
+/* ---------------- ★★ 通用弹层（货架/货物详情用） ---------------- */
+#mdMask{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9000;
+  display:none;align-items:center;justify-content:center;padding:20px}
+#mdMask.on{display:flex}
+#mdBox{background:#fff;border-radius:14px;max-width:620px;width:100%;
+  max-height:82vh;overflow:auto;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+#mdBox h3{margin:0 0 14px;font-size:17px;color:#1e293b}
+#mdBox .mdclose{float:right;cursor:pointer;font-size:20px;color:#94a3b8;line-height:1}
+#mdBox .mdclose:hover{color:#dc2626}
+.pcard{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px;
+  cursor:pointer;transition:.15s;background:#fafbfc}
+.pcard:hover{border-color:#3b82f6;background:#f0f7ff}
+.pcard .prow{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.pcard .ptitle{font-weight:600;color:#1e293b;font-size:14px}
+.pcard .pmeta{color:#64748b;font-size:12px;margin-top:4px}
+.pcard .pdel{background:#fee2e2;color:#dc2626;border:0;border-radius:6px;
+  padding:4px 9px;cursor:pointer;font-size:12px}
+.pcard .pdel:hover{background:#fecaca}
+.dl{display:grid;grid-template-columns:88px 1fr;gap:8px 12px;font-size:13px;
+  margin:12px 0 16px}
+.dl .k{color:#94a3b8}
+.dl .v{color:#1e293b;word-break:break-all}
+.bigbtn{display:block;width:100%;padding:10px;border-radius:9px;border:1px dashed #94a3b8;
+  background:#f8fafc;color:#475569;cursor:pointer;font-size:13px;margin-top:6px}
+.bigbtn:hover{border-color:#3b82f6;color:#2563eb;background:#f0f7ff}
+.finput{width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:7px;
+  font-size:13px;margin-bottom:8px;box-sizing:border-box}
+.finput:focus{outline:0;border-color:#3b82f6}
+.f2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
 /* ---------------- ★ 货架（菜鸟驿站的核心） ---------------- */
 .racks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .rack{border:2px dashed var(--line);border-radius:10px;padding:13px 8px;text-align:center;
@@ -82,6 +151,177 @@ body[data-theme="dark"] header button:hover{border-color:var(--primary)}
 .rack:hover{transform:translateY(-2px)}
 
 /* ---------------- 设备 ---------------- */
+.bat{font-size:11.5px;color:var(--fg2);display:inline-flex;align-items:center;gap:5px;margin-right:6px}
+.batbar{display:inline-block;width:42px;height:9px;border-radius:5px;background:var(--line);overflow:hidden;position:relative}
+.batbar i{display:block;height:100%;border-radius:5px}
+.bat.none{opacity:.55}
+.urow{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 2px;border-bottom:1px dashed var(--line);font-size:13px}
+.urow:last-child{border-bottom:0}
+.urow .un{font-weight:700}
+.urow .up{font-size:11.5px;color:var(--fg2);margin-left:6px}
+.urow .ub{display:flex;gap:6px;font-size:11px}
+.utag{padding:2px 8px;border-radius:9px;background:var(--card2);border:1px solid var(--line)}
+.utag.w{background:#fff4e5;border-color:#f0b775;color:#b06b00}
+.utag.o{background:#e8f1ff;border-color:#7aa7e0;color:#1f5aa8}
+.utag.d{background:#e8f7ee;border-color:#7ec89a;color:#1a7f45}
+.ugroup{font-size:12px;font-weight:700;color:var(--fg2);padding:10px 2px 4px;
+  border-bottom:1px solid var(--line);margin-top:4px}
+.uact{font-size:11px;color:var(--primary);cursor:pointer;border:0;background:none;
+  padding:2px 5px;font-family:inherit}
+.uact.del{color:#f5222d}
+.uact:hover{text-decoration:underline}
+.uhead{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.usel{font:12px inherit;padding:5px 9px;border-radius:7px;border:1px solid var(--line);
+  background:var(--card2);color:var(--fg)}
+.ubtn2{font:12px inherit;padding:5px 12px;border-radius:7px;border:0;background:var(--primary);
+  color:#fff;cursor:pointer;font-weight:600}
+.ubtn2.gh{background:var(--card2);color:var(--fg2);border:1px solid var(--line);font-weight:400}
+/* ---------------- ★★★ 左侧导航布局 ---------------- */
+.layout{display:flex;gap:16px;align-items:flex-start}
+.side{flex:0 0 178px;position:sticky;top:70px;align-self:flex-start}
+.sidenav{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:8px;box-shadow:var(--shadow)}
+.snhd{font-size:11px;color:var(--fg2);padding:12px 10px 5px;font-weight:700;letter-spacing:.6px}
+.snav{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:10px 12px;
+  border:0;background:none;border-radius:8px;font:13.5px inherit;color:var(--fg);
+  cursor:pointer;margin-bottom:2px;font-family:inherit}
+.snav:hover{background:var(--card2);color:var(--primary)}
+.snav.on{background:color-mix(in srgb,var(--primary) 13%,transparent);color:var(--primary);font-weight:700}
+.snav .badge{margin-left:auto;font-size:11px;background:var(--primary);color:#fff;
+  border-radius:9px;padding:1px 7px;font-weight:600}
+.main{flex:1 1 auto;min-width:0}
+.panel{display:none}
+.panel.on{display:block}
+.panel-t{font-size:15px;font-weight:700;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+/* ================= ★★★ 响应式适配（大屏 → 平板 → 手机）================= */
+@media(max-width:1180px){
+  .pkwrap{flex-direction:column}
+  .pklist,.pktl{flex:1 1 auto;width:100%;min-width:0}
+  .pktl{border-top:2px solid var(--line);
+        padding-left:4px;padding-top:16px;max-height:clamp(220px,40vh,460px)}
+}
+@media(max-width:920px){
+  .layout{flex-direction:column;gap:12px}
+  .side{position:sticky;top:56px;width:100%;flex:1 1 auto;z-index:7}
+  .sidenav{display:flex;flex-direction:row;flex-wrap:nowrap;gap:6px;padding:6px;
+           overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .snav{width:auto;white-space:nowrap;margin-bottom:0;padding:8px 13px;font-size:12.5px}
+  .snhd{display:none}
+  .grid{grid-template-columns:1fr}
+}
+@media(max-width:680px){
+  header{padding:9px 12px;gap:8px;flex-wrap:wrap}
+  header .logo{font-size:15px}
+  header .acts{gap:5px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  header button{padding:5px 10px;font-size:11.5px;border-radius:13px}
+  .wrap{padding:10px 11px 22px}
+  .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+  .stat{padding:10px 12px}
+  .stat .num{font-size:20px}
+  .stat .lab{font-size:11px}
+  .card>h2{font-size:13px;padding:10px 12px;flex-wrap:wrap;gap:5px}
+  .card .body{padding:12px}
+  .card>h2 .maptabs{width:100%;margin-left:0;margin-top:5px;flex-wrap:wrap}
+  .mtab{padding:3px 9px;font-size:11.5px}
+  #gmap{height:clamp(240px,44vh,380px)}
+  .racks{grid-template-columns:repeat(3,1fr);gap:7px}
+  .rack{padding:10px 6px} .rack .ri{font-size:18px}
+  .uhead,.ubar{gap:6px}
+  .uin,.ubtn,.ubtn2{font-size:12.5px;padding:8px 12px}
+  .urow{flex-wrap:wrap;gap:4px}
+  .urow .ub{flex-wrap:wrap}
+  .lgwrap{padding:16px 0 18px}
+  .lgcard{width:100%;border-radius:12px}
+  .lgbody{padding:16px 15px 18px}
+  .lrow{flex-wrap:wrap}
+  .lrow label{min-width:100%}
+  .mycode{font-size:19px}
+  .pklist,.pktl{max-height:clamp(200px,36vh,360px)}
+  .ops select,.ops input{flex:1 1 auto}
+}
+@media(max-width:420px){
+  .stats{grid-template-columns:1fr 1fr}
+  .snav{padding:7px 10px;font-size:12px}
+  .ops select,.ops input{flex:1 1 100%}
+}
+@media(max-height:520px) and (orientation:landscape){
+  header{padding:7px 12px}
+  #gmap{height:62vh}
+  .stats{margin-bottom:10px}
+  .stat{padding:8px 12px} .stat .num{font-size:19px}
+}
+@media(hover:none){
+  .snav,.mtab,.ubtn,.ubtn2,.uact,header button{min-height:32px}
+}
+/* 登录页背景 */
+#view-login{border-radius:14px;overflow:hidden;position:relative;
+  flex:1 1 auto;display:flex;flex-direction:column;min-height:0;
+  background:
+    radial-gradient(circle at 14% 22%, rgba(0,160,233,.17), transparent 44%),
+    radial-gradient(circle at 86% 74%, rgba(0,181,120,.15), transparent 46%),
+    radial-gradient(circle at 50% 120%, rgba(0,160,233,.10), transparent 55%),
+    linear-gradient(152deg,#eef7ff 0%,#f7fafd 48%,#eef4ff 100%)}
+#view-login:before{content:"🚚";position:absolute;font-size:132px;opacity:.055;
+  left:5%;bottom:9%;transform:rotate(-10deg);pointer-events:none}
+#view-login:after{content:"📦";position:absolute;font-size:112px;opacity:.05;
+  right:5%;top:8%;transform:rotate(13deg);pointer-events:none}
+.bgdeco{position:absolute;pointer-events:none;opacity:.05;font-size:78px}
+body[data-theme="dark"] #view-login{
+  background:
+    radial-gradient(circle at 14% 22%, rgba(31,111,235,.22), transparent 44%),
+    radial-gradient(circle at 86% 74%, rgba(63,185,80,.14), transparent 46%),
+    linear-gradient(152deg,#0f1115 0%,#121822 48%,#0f1115 100%)}
+/* 登录卡（淘宝风） */
+.lgwrap{display:flex;justify-content:center;align-items:center;
+  padding:40px 16px;flex:1 1 auto;width:100%}
+.lgcard{width:100%;max-width:430px;background:var(--card);border-radius:16px;overflow:hidden;
+  box-shadow:0 6px 32px rgba(0,0,0,.11);border:1px solid var(--line)}
+.lghead{background:var(--head);color:var(--headfg);text-align:center;padding:24px 20px 20px;
+  font-size:19px;font-weight:800;letter-spacing:1px}
+.lghead small{display:block;font-weight:400;font-size:12px;opacity:.85;margin-top:5px;letter-spacing:0}
+.lgtabs{display:flex;border-bottom:1px solid var(--line)}
+.lgtab{flex:1;padding:13px 0;border:0;background:none;font:14.5px inherit;color:var(--fg2);
+  cursor:pointer;position:relative;font-weight:600}
+.lgtab.on{color:var(--primary)}
+.lgtab.on:after{content:"";position:absolute;left:26%;right:26%;bottom:-1px;height:3px;
+  border-radius:2px;background:var(--primary)}
+.lgbody{padding:22px 24px 24px}
+.lerr{font-size:12.5px;color:var(--err);padding:7px 2px 0;line-height:1.6}
+.lgtitle{font-size:14px;font-weight:700;color:var(--fg);display:flex;align-items:center;
+  gap:7px;padding:0 0 11px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.login{max-width:420px}
+/* ★★★ 电脑端：登录卡放大（平板/手机不受影响） */
+@media(min-width:768px){
+  .lgcard{max-width:486px;border-radius:18px}
+  .lghead{font-size:22px;padding:30px 26px 26px;letter-spacing:1.5px}
+  .lghead small{font-size:13px;margin-top:7px}
+  .lgtab{font-size:16px;padding:16px 0}
+  .lgbody{padding:28px 34px 30px}
+  .lrow{margin-bottom:14px;gap:10px}
+  .lrow label{font-size:14px;min-width:66px}
+  .lrow input{font-size:15px;padding:12px 15px;border-radius:9px}
+  .lgbody .ubtn{font-size:15.5px;padding:13px 22px;border-radius:9px;margin-top:8px}
+  .lerr{font-size:13px;padding-top:9px}
+  .lgbody .ucode{font-size:13.5px;padding:12px 16px;line-height:1.75}
+  .lgtitle{font-size:16px;padding-bottom:13px;margin-bottom:16px}
+  .lgwrap{padding:52px 20px}
+}
+@media(min-width:1200px){
+  .lgcard{max-width:512px}
+  .lghead{font-size:23px;padding:34px 28px 28px}
+  .lgbody{padding:30px 38px 34px}
+}
+.lrow{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.lrow label{font-size:12.5px;color:var(--fg2);min-width:56px}
+.lrow input{flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--line);
+  background:var(--card2);color:var(--fg);font:13.5px inherit}
+.lrow input:focus{outline:none;border-color:var(--primary)}
+.ucode{background:color-mix(in srgb,var(--primary) 12%,transparent);border:1px dashed var(--primary);
+  border-radius:8px;padding:9px 13px;font-size:13px;margin:6px 0 12px;line-height:1.7}
+.ucode b{font-size:17px;letter-spacing:3px;color:var(--primary)}
+.uwho{display:flex;align-items:center;gap:10px;font-size:14px;padding:2px 0 10px}
+
 .dev{display:flex;align-items:center;justify-content:space-between;
   padding:9px 2px;border-bottom:1px solid var(--line)}
 .dev:last-child{border-bottom:none}
@@ -130,84 +370,568 @@ button.b.p:hover{background:var(--primary-d)}
 .log .dv{color:var(--info)}
 
 .empty{color:var(--fg2);font-size:12.5px;text-align:center;padding:22px 0}
+
+/* ---------------- ★ 地图 ---------------- */
+.mapbox{text-align:center;background:#08090b;border-radius:8px;padding:4px;overflow:hidden}
+.mapwrap{position:relative;display:block;line-height:0}
+.mapwrap img{display:block;width:100%;height:auto;max-height:74vh;object-fit:contain;
+  image-rendering:pixelated;border-radius:4px;background:#111}
+#mapoverlay{position:absolute;left:0;top:0}
+.mark{position:absolute;font-size:12px;line-height:1;white-space:nowrap;pointer-events:none}
+.mark.car{font-size:30px;filter:drop-shadow(0 0 8px var(--primary));z-index:3;
+  transform:translate(-50%,-50%)}
+.mark.site{font-size:20px;z-index:2;transform:translate(-50%,-50%)}
+.mark.site.up{transform:translate(-50%,-50%) translateY(-18px)}
+.mark.site.down{transform:translate(-50%,-50%) translateY(18px)}
+.mark .lbl{font-size:12px;background:rgba(0,0,0,.68);color:#fff;padding:2px 6px;
+  border-radius:3px;margin-left:3px;font-weight:600}
+
+/* ---------------- ★ 真实地图（Leaflet + 高德瓦片） ---------------- */
+#gmap{width:100%;height:clamp(300px,56vh,640px);border-radius:6px;background:#e8eaed}
+.maptabs{margin-left:auto;display:flex;gap:5px}
+.mtab{font:12px inherit;padding:3px 11px;border-radius:12px;cursor:pointer;
+  border:1px solid var(--line);background:var(--card2);color:var(--fg2)}
+.mtab.on{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.geo-hint{font-size:11.5px;color:var(--fg2);text-align:center;padding:7px 0 2px;line-height:1.9}
+.geo-hint .pk{display:inline-block;margin:2px 5px;background:var(--card2);border:1px solid var(--line);
+  padding:2px 9px;border-radius:11px;color:var(--fg);font-size:11.5px}
+.geo-hint .pk a{color:#e05555;text-decoration:none;font-weight:700;margin-left:4px}
+.geo-hint .pk a:hover{text-decoration:underline}
+.geo-tools{text-align:center;padding:4px 0 6px}
+.gbtn{font:12px inherit;padding:3px 12px;border-radius:12px;cursor:pointer;margin:0 4px;
+  border:1px solid var(--line);background:var(--card2);color:var(--fg2)}
+.gbtn:hover{border-color:#e05555;color:#e05555}
+.leaflet-popup-content{font:12.5px/1.5 -apple-system,"Microsoft YaHei",sans-serif}
+
+/* ---------------- ★ 包裹追踪 + 时间线 ---------------- */
+.pkwrap{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.pklist{flex:1 1 320px;min-width:260px;display:flex;flex-direction:column;gap:7px;
+  max-height:clamp(240px,48vh,560px);overflow:auto}
+.pkitem{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line);background:var(--card2);transition:.12s}
+.pkitem:hover{border-color:var(--primary)}
+.pkitem.sel{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,var(--card2))}
+.pkitem .pid{font-weight:700;font-size:12.5px;min-width:52px}
+.pkitem .pown{font-size:13px;font-weight:600}
+.pkitem .pdst{font-size:11.5px;color:var(--fg2)}
+.pkitem .pcode{margin-left:auto;font-size:11px;background:var(--card);border:1px dashed var(--line);
+  padding:2px 7px;border-radius:9px;white-space:nowrap}
+.pkst{font-size:11px;padding:2px 8px;border-radius:9px;white-space:nowrap;
+  background:var(--card);border:1px solid var(--line)}
+.pkst.PLACED{background:#fff4e5;border-color:#f0b775;color:#b06b00}
+.pkst.PICKED{background:#e8f7ee;border-color:#7ec89a;color:#1a7f45}
+.pkst.DELIVERING,.pkst.LOADED{background:#e8f1ff;border-color:#7aa7e0;color:#1f5aa8}
+.pktl{flex:1 1 420px;min-width:300px;max-height:clamp(240px,48vh,560px);overflow:auto;
+  padding-left:4px;padding-right:6px}
+.tl{position:relative;padding-left:24px}
+.tl:before{content:"";position:absolute;left:7px;top:16px;bottom:18px;width:2px;
+  background:var(--line);border-radius:1px}
+.tl .ti{position:relative;padding:8px 0 8px 4px}
+.tl .ti:before{content:"";position:absolute;left:-24px;top:13px;width:12px;height:12px;
+  border-radius:50%;background:var(--card);border:2.5px solid var(--line);z-index:1;
+  box-sizing:border-box}
+.tl .ti.on:before{background:var(--primary);border-color:var(--primary);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--primary) 25%,transparent)}
+.tl .ti.upstream:before{border-style:dashed;background:var(--card)}
+.tl .ti:last-child{padding-bottom:2px}
+.tl .tt{font-size:11px;color:var(--fg2);font-variant-numeric:tabular-nums}
+.tl .te{font-size:13px;font-weight:600;margin:1px 0 1px}
+.tl .td{font-size:11.5px;color:var(--fg2);line-height:1.5}
+.tl .ti.upstream:before{border-style:dashed}
+.pktl .empty{padding:20px 0}
+
+/* ---------------- ★ 用户视图 ---------------- */
+.ubar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.uin{flex:1 1 280px;padding:10px 14px;border-radius:8px;border:1px solid var(--line);
+  background:var(--card2);color:var(--fg);font:13.5px inherit}
+.uin:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 15%,transparent)}
+.ubtn{padding:10px 20px;border-radius:8px;border:0;background:var(--primary);color:#fff;
+  font:13.5px inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.ubtn:hover{background:var(--primary-d)}
+.ubtn.ghost{background:var(--card2);color:var(--fg2);border:1px solid var(--line);font-weight:400}
+.ubtn.ghost:hover{color:var(--primary);border-color:var(--primary)}
+.uhint{font-size:12.5px;color:var(--fg2);padding:10px 2px 0;line-height:1.7}
+.mycard{border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px;
+  background:var(--card);box-shadow:var(--shadow)}
+.myhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.mycode{font-size:22px;font-weight:800;color:var(--primary);letter-spacing:2px;
+  font-variant-numeric:tabular-nums}
+.mytip{background:color-mix(in srgb,var(--primary) 10%,transparent);border:1px dashed var(--primary);
+  border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0;line-height:1.7}
+.mymeta{font-size:12.5px;color:var(--fg2);margin-bottom:10px}
+.vsw{display:flex;gap:6px;margin-left:12px}
+.mark.car .lbl{font-size:11px}
 .foot{text-align:center;color:var(--fg2);font-size:11.5px;margin-top:20px}
+/* ★ 事件记录：可放大 + 详情列 */
+.log.big{max-height:none}
+.log .ev{white-space:nowrap}
+.log .dv{white-space:nowrap}
+.log .ed{color:var(--fg2);font-size:11.5px;opacity:.9;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 </style>
 </head>
 <body data-theme="cainiao">
+<div id="__load" style="padding:40px;text-align:center;color:#8a919e;font:14px sans-serif">
+  正在加载界面…（如果这行一直不消失，说明页面脚本卡住了 —— 请按 Ctrl+F5 强制刷新）
+</div>
 
 <header>
   <div class="logo">📦 校园快递配送站</div>
-  <div class="search">🔍 <input id="q" placeholder="搜包裹号 / 库位，如 T0002 或 1A"></div>
   <div class="acts">
+    <span class="uwrap" id="tb-user"></span>
+    <button id="tb-logout" style="display:none" onclick="lgLogout()">退出</button>
     <button onclick="toggleTheme()" id="thbtn">🌙 深色</button>
-    <button onclick="load();loadEvents()">🔄 刷新</button>
+    <button id="rfbtn" onclick="doRefresh()">🔄 刷新</button>
   </div>
 </header>
 
 <div class="wrap">
 
   <!-- 数据条 -->
-  <div class="stats">
-    <div class="stat a"><div class="num" id="m-dev">-</div><div class="lab">在线设备</div></div>
-    <div class="stat b"><div class="num" id="m-queue">-</div><div class="lab">待取包裹</div></div>
-    <div class="stat c"><div class="num" id="m-total">-</div><div class="lab">累计包裹</div></div>
-    <div class="stat d"><div class="num" id="m-done">-</div><div class="lab">已送达</div></div>
-    <div class="stat d"><div class="num" id="m-avg">-</div><div class="lab">平均耗时</div></div>
-  </div>
+  <!-- ★★★ 登录 / 注册（未登录时显示；登录后隐藏） -->
+  <div id="view-login">
+    <div class="lgwrap">
+      <div class="lgcard">
+        <div class="lghead">🚚 校园快递配送站<small>车-机协同末端配送系统</small></div>
+        <div class="lgtabs">
+          <button class="lgtab on" id="lg-t1" onclick="lgTab('login')">登录</button>
+          <button class="lgtab" id="lg-t2" onclick="lgTab('reg')">注册</button>
+        </div>
+        <div class="lgbody">
+          <!-- 登录 -->
+          <div id="lg-login">
+            <div class="lrow"><label>账号</label>
+              <input id="lg-acc" placeholder="用户名 / 手机号" onkeydown="if(event.key==='Enter')lgDoLogin()"></div>
+            <div class="lrow"><label>密码</label>
+              <input id="lg-pwd" type="password" placeholder="密码" onkeydown="if(event.key==='Enter')lgDoLogin()"></div>
+            <button class="ubtn" style="width:100%;margin-top:4px" onclick="lgDoLogin()">登 录</button>
+            <div class="lerr" id="lg-err"></div>
+            <div style="display:flex;justify-content:flex-end;gap:16px;margin-top:8px">
+              <a href="#" onclick="lgForgot();return false;"
+                 style="font-size:12.5px;color:var(--primary);text-decoration:none">忘记密码？</a>
+              <a href="#" onclick="lgReset();return false;"
+                 style="font-size:12.5px;color:var(--fg2);text-decoration:none">重置密码？</a>
+            </div>
+          </div>
+          <!-- ★★★ 重置密码（两步：验证身份 → 设新密码）-->
+          <div id="lg-reset" style="display:none">
+            <div class="lgtitle">🔑 重置密码</div>
+            <div id="rs-step1">
+              <div class="lrow"><label>手机号</label>
+                <input id="rs-phone" placeholder="注册时的手机号"
+                       onkeydown="if(event.key==='Enter')rsVerify()"></div>
+              <div class="lrow"><label>当前密码</label>
+                <input id="rs-oldpw" type="password" placeholder="你现在的密码"
+                       onkeydown="if(event.key==='Enter')rsVerify()"></div>
+              <button class="ubtn" style="width:100%;margin-top:6px" onclick="rsVerify()">验证身份</button>
+            </div>
+            <div id="rs-step2" style="display:none">
+              <div style="font-size:12.5px;color:var(--ok);margin-bottom:10px">✓ 身份验证通过 —— 请设置新密码</div>
+              <div class="lrow"><label>新密码</label>
+                <input id="rs-newpw" type="password" placeholder="至少 6 位"
+                       onkeydown="if(event.key==='Enter')rsDoReset()"></div>
+              <div class="lrow"><label>确认密码</label>
+                <input id="rs-newpw2" type="password" placeholder="再输一次，两次要一样"
+                       onkeydown="if(event.key==='Enter')rsDoReset()"></div>
+              <button class="ubtn" style="width:100%;margin-top:6px" onclick="rsDoReset()">确认重置</button>
+            </div>
+            <div class="ucode" id="rs-tip" style="margin-top:12px">
+              ★ 用【手机号 + 当前密码】验证身份，通过后设置新密码（要输两遍确认）
+            </div>
+            <div style="text-align:right;margin-top:10px">
+              <a href="#" onclick="lgTab('login');return false;"
+                 style="font-size:12.5px;color:var(--primary);text-decoration:none">← 返回登录</a>
+            </div>
+          </div>
 
-  <div class="grid">
-    <!-- 左列 -->
-    <div>
-      <div class="card">
-        <h2>🗄️ 货架状态 <span class="cnt" id="c-rack">—</span></h2>
-        <div class="body"><div class="racks" id="racks"><div class="empty">暂无库位数据</div></div></div>
-      </div>
+          <!-- 忘记密码 / 找回（★ 三项信息验证，不用验证码）-->
+          <div id="lg-forgot" style="display:none">
+            <div class="lgtitle">🔍 找回密码</div>
+            <div class="lrow"><label>手机号</label>
+              <input id="fp-phone" placeholder="注册时的手机号"
+                     onkeydown="if(event.key==='Enter')fpFind()"></div>
+            <div class="lrow"><label>姓名</label>
+              <input id="fp-name" placeholder="你的姓名（验证身份用）"
+                     onkeydown="if(event.key==='Enter')fpFind()"></div>
+            <div class="lrow"><label>宿舍楼号</label>
+              <input id="fp-bld" placeholder="或填楼栋，如 3（二选一）"
+                     onkeydown="if(event.key==='Enter')fpFind()"></div>
+            <button class="ubtn" style="width:100%;margin-top:6px" onclick="fpFind()">找回密码</button>
+            <div class="ucode" id="fp-tip" style="margin-top:12px">
+              ★ 填【手机号】+ 再填【姓名】或【楼栋】任意一项，验证通过后显示你的原密码
+            </div>
+            <div style="text-align:right;margin-top:10px">
+              <a href="#" onclick="lgTab('login');return false;"
+                 style="font-size:12.5px;color:var(--primary);text-decoration:none">← 返回登录</a>
+            </div>
+          </div>
 
-      <div class="card">
-        <h2>🚗 设备 <span class="cnt" id="c-dev">—</span></h2>
-        <div class="body" id="devs"><div class="empty">暂无设备上报</div></div>
-      </div>
-
-      <div class="card">
-        <h2>🎮 手动操作</h2>
-        <div class="body">
-          <div class="ops">
-            <select id="o-target"><option value="car-01">小车 car-01</option><option value="nx-01">无人机 nx-01</option></select>
-            <select id="o-cmd">
-              <option value="goto_pick">派车取货</option>
-              <option value="goto_deliver">派车送达</option>
-              <option value="ask_slot">问库位</option>
-              <option value="start">唤醒设备</option>
-            </select>
-            <input id="o-site" value="1" size="3" placeholder="站点">
-            <input id="o-slot" value="1A" size="4" placeholder="库位">
-            <button class="b p" onclick="sendCmd()">发送指令</button>
+          <!-- 注册 -->
+          <div id="lg-reg" style="display:none">
+            <div class="lgtitle">📝 注册新用户</div>
+            <div class="lrow"><label>姓名</label><input id="rg-name" placeholder="你的姓名"></div>
+            <div class="lrow"><label>手机号</label><input id="rg-phone" placeholder="手机号（登录用）"></div>
+            <div class="lrow"><label>楼栋</label><input id="rg-bld" placeholder="如 3号楼（可留空）"></div>
+            <div class="lrow"><label>密码</label>
+              <input id="rg-pwd" type="password" placeholder="至少 6 位" onkeydown="if(event.key==='Enter')lgDoRegister()"></div>
+            <button class="ubtn" style="width:100%;margin-top:4px" onclick="lgDoRegister()">注 册</button>
+            <div class="ucode" id="rg-tip" style="margin-top:14px">★ 注册出来的都是【普通用户】；管理员账号由系统内置</div>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- 右列 -->
-    <div>
-      <div class="card">
-        <h2>📋 包裹列表 <span class="cnt" id="c-parcel">—</span></h2>
-        <div class="body"><div class="parcels" id="parcels"><div class="empty">暂无包裹</div></div></div>
-      </div>
-
-      <div class="card">
-        <h2>📜 事件记录 <span class="cnt">最近 40 条</span></h2>
-        <div class="body" style="padding-top:6px;padding-bottom:6px">
-          <div class="log" id="log"><div>等待事件…</div></div>
-        </div>
-      </div>
-    </div>
   </div>
 
-  <div class="foot">车-机协同末端配送系统 · 陈嘉誉 · 每 2 秒自动刷新</div>
+  <!-- ★★★ 主界面（登录后显示）：左侧导航 + 右侧内容 -->
+  <div id="view-app" style="display:none">
+  <div class="layout">
+
+    <aside class="side">
+      <div class="sidenav" id="snav"><!-- 菜单由 JS 按角色生成 --></div>
+    </aside>
+
+    <main class="main">
+
+      <!-- 📊 总览 -->
+      <div class="panel on" id="p-over">
+        <div class="stats">
+          <div class="stat a"><div class="num" id="m-dev">-</div><div class="lab">在线设备</div></div>
+          <div class="stat b"><div class="num" id="m-queue">-</div><div class="lab">待取包裹</div></div>
+          <div class="stat c"><div class="num" id="m-total">-</div><div class="lab">累计包裹</div></div>
+          <div class="stat d"><div class="num" id="m-done">-</div><div class="lab">已送达</div></div>
+          <div class="stat d"><div class="num" id="m-avg">-</div><div class="lab">平均耗时</div></div>
+        </div>
+        <div class="card">
+          <h2>📊 系统概览</h2>
+          <div class="body" style="font-size:13px;line-height:2.1;color:var(--fg2)">
+            ★ 左侧点菜单切换功能页 —— 地图 / 包裹跟踪 / 货架 / 设备 / 用户 / 手动操作 / 事件记录，一个都不少。<br>
+            ★★ 所有数据每 2 秒自动刷新；管理员可点【👤 我的包裹】预览收件人看到的界面。<br>
+            ★★★ 平台决策流：无人机投放 → 平台分配库位 → 派车取货 → 校园配送 → 放入货柜 → 用户取件。
+          </div>
+        </div>
+      </div>
+
+      <!-- 🗺️ 地图监控 -->
+      <div class="panel" id="p-map">
+        <div class="card">
+          <h2>🗺️ 地图与实时位置
+            <span class="cnt" id="c-map">—</span>
+            <span class="maptabs">
+              <button class="mtab on" id="tab-real" onclick="switchMap('real')">🗺️ 真实地图</button>
+              <button class="mtab" id="tab-slam" onclick="switchMap('slam')">📐 SLAM 图</button>
+            </span>
+          </h2>
+          <div class="body">
+            <div class="mapbox" id="mapbox-real">
+              <div id="gmap"></div>
+              <div class="geo-hint" id="geo-hint">正在加载高德地图…</div>
+              <div class="geo-tools" id="geo-tools" style="display:none">
+                <button class="gbtn" onclick="delLastPick()">↩ 撤销上一个</button>
+                <button class="gbtn" onclick="clearPicks()">🗑 清除全部标定点</button>
+              </div>
+            </div>
+            <div class="mapbox" id="mapbox-slam" style="display:none">
+              <div class="empty">正在加载地图…（若一直这样，说明服务器上还没有地图文件）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 📦 包裹跟踪 -->
+      <div class="panel" id="p-parcel">
+        <div class="card">
+          <h2>📦 包裹追踪 · 每件货自己的运输轨迹
+            <span class="cnt" id="c-pk">—</span>
+            <span class="maptabs">
+              <button class="mtab on" id="tab-pk-all" onclick="pkFilter('')">全部</button>
+              <button class="mtab" id="tab-pk-way" onclick="pkFilter('WAY')">🚚 配送中</button>
+              <button class="mtab" id="tab-pk-wait" onclick="pkFilter('PLACED')">待取</button>
+              <button class="mtab" id="tab-pk-done" onclick="pkFilter('PICKED')">已取</button>
+            </span>
+          </h2>
+          <div class="body">
+            <div class="uhead">
+              <input class="uin" id="q" placeholder="🔍 包裹号 / 收件人 / 手机号 / 运单号 / 取件码"
+                     onkeydown="if(event.key==='Enter')doSearch()" style="flex:1 1 260px">
+              <button class="ubtn2" onclick="doSearch()">🔍 搜索</button>
+              <button class="ubtn2 gh" onclick="doSearchClear()">清空</button>
+            </div>
+            <div class="pkwrap">
+              <div class="pklist" id="pklist"><div class="empty">暂无包裹</div></div>
+              <div class="pktl" id="pktl"><div class="empty">← 点左边一件包裹，看它自己的完整轨迹</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🗄️ 货架状态 -->
+      <!-- 🚁 无人机端（人操作：起飞 / 已取货 / 已放货）-->
+      <div class="panel" id="p-drone">
+        <div class="card">
+          <h2>📡 无人机上报 <span class="cnt">无人机由人操作，不是自主飞行</span></h2>
+          <div class="body">
+            <!-- ★★★ 选择无人机（可多机）-->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;
+                        padding:10px 14px;background:#f8fafc;border-radius:8px;
+                        border-left:3px solid #0ea5e9">
+              <span style="font-size:13px;color:#475569;white-space:nowrap">选择无人机</span>
+              <select id="dr-pick" onchange="droneSelect(this.value)"
+                      style="flex:1;max-width:340px;padding:8px 10px;border:1px solid #cbd5e1;
+                             border-radius:6px;font-size:14px;background:#fff"></select>
+              <button class="b p" style="padding:7px 14px;font-size:13px"
+                      onclick="droneAdd()">＋ 登记新无人机</button>
+              <button style="background:#fee2e2;color:#dc2626;border:0;border-radius:6px;
+                             padding:7px 12px;cursor:pointer;font-size:13px"
+                      onclick="droneDel()">🗑 删除这台</button>
+            </div>
+            <div id="dr-offline" class="uhint"
+                 style="display:none;margin-bottom:12px;background:#fff4e5;
+                        border-left:3px solid #f59e0b;padding:10px 12px;border-radius:6px"></div>
+            <div id="dr-status" class="empty">加载中…</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0">
+              <button id="dr-b1" onclick="droneAct('takeoff')"
+                      style="padding:20px 10px;border:0;border-radius:12px;cursor:pointer;
+                             background:#0ea5e9;color:#fff;font-size:15px;font-weight:600">
+                ▶️<br>无人机起飞</button>
+              <button id="dr-b2" onclick="droneAct('loaded')"
+                      style="padding:20px 10px;border:0;border-radius:12px;cursor:pointer;
+                             background:#8b5cf6;color:#fff;font-size:15px;font-weight:600">
+                📦<br>已取货（挂载）</button>
+              <button id="dr-b3" onclick="droneAct('dropped')"
+                      style="padding:20px 10px;border:0;border-radius:12px;cursor:pointer;
+                             background:#22c55e;color:#fff;font-size:15px;font-weight:600">
+                ✅<br>已放货（到校门口）</button>
+            </div>
+            <div class="uhint" id="dr-alloc"
+                 style="margin-bottom:12px;background:#f0f9ff;border-left:3px solid #0ea5e9;
+                        padding:10px 12px;border-radius:6px">平台分配：加载中…</div>
+            <div class="uhint" style="margin-bottom:12px">
+              点【已放货】= 平台登记货物到校门口站点 → 自动派车去取
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+              <input class="finput" id="dr-site"  value="1" placeholder="站点">
+              <input class="finput" id="dr-slot"  placeholder="库位（选填）">
+              <input class="finput" id="dr-track" placeholder="运单号（选填）">
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:6px">
+              <input class="finput" id="dr-owner" placeholder="★ 收件人姓名（必填）">
+              <input class="finput" id="dr-phone" placeholder="★ 收件人手机号（必填）">
+              <input class="finput" id="dr-dst"   placeholder="送到哪（如 3号楼）">
+              <input class="finput" id="dr-marker" placeholder="AR码序号（不填自动分配）">
+            </div>
+            <div class="uhint" style="margin-bottom:12px;font-size:12px">
+              ★ 收件人必填 —— 否则这件货没有主人，收件人查不到「我的包裹」<br>
+              ★ AR码序号 = 贴在货物上的标签号，小车用摄像头读它来认货（不填平台自动分配）
+            </div>
+            <h2 style="font-size:15px;margin-top:16px">📦 机上载货</h2>
+            <div id="dr-loads" class="empty">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="p-rack">
+        <div class="card">
+          <h2>🗄️ 货架总览
+            <span style="float:right;display:flex;gap:8px">
+              <span class="mtab on" id="rt-transit" onclick="rackTab('transit')">🔄 中转货架</span>
+              <span class="mtab"    id="rt-dst"     onclick="rackTab('dst')">🏬 配送点货柜</span>
+            </span></h2>
+          <div class="body">
+            <!-- 中转货架（校门口站点） -->
+            <div id="rack-transit">
+              <div class="uhint" style="margin-bottom:10px">校门口站点 · 无人机放货 → 小车来取（流程中间）</div>
+              <div class="racks" id="racks"><div class="empty">暂无库位数据</div></div>
+            </div>
+            <!-- 配送点货柜（校内，收件人来取） -->
+            <div id="rack-dst" style="display:none">
+              <div style="display:flex;align-items:center;margin-bottom:10px">
+                <span class="uhint">校内配送点 · 小车放货 → 收件人来取（流程终点）· <span id="c-dst">—</span></span>
+                <span style="flex:1"></span>
+                <button class="b p" style="padding:5px 12px;font-size:13px"
+                        onclick="addDstPoint()">＋ 新增配送点</button>
+              </div>
+              <div id="dstbox"><div class="empty">加载中…</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🔋 设备管理 -->
+      <div class="panel" id="p-dev">
+        <div class="card">
+          <h2>🔋 设备管理 <span class="cnt" id="c-dev">—</span></h2>
+          <div class="body" id="devs"><div class="empty">暂无设备</div></div>
+        </div>
+      </div>
+
+      <!-- 👥 用户管理 -->
+      <div class="panel" id="p-user">
+        <div class="card">
+          <h2>👥 用户管理 <span class="cnt" id="c-usr">—</span></h2>
+          <div class="body">
+            <div class="uhead">
+              <select class="usel" id="u-bld" onchange="loadUsers()"><option value="">全部楼栋</option></select>
+              <button class="ubtn2" onclick="userAdd()">+ 添加用户</button>
+              <button class="ubtn2 gh" onclick="userImport()">从包裹导入</button>
+            </div>
+            <div id="users"><div class="empty">暂无用户</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🎮 手动操作 -->
+      <div class="panel" id="p-op">
+        <div class="card">
+          <h2>🎮 小车手动操作
+            <span class="cnt">无人机的操作请走【📡 无人机上报】</span></h2>
+          <div class="body">
+            <div class="ops">
+              <select id="o-target" style="min-width:130px">
+                <option value="car-01">小车 car-01</option>
+              </select>
+              <select id="o-cmd">
+                <option value="goto_pick">派车取货</option>
+                <option value="goto_deliver">派车送达</option>
+                <option value="go_home">返回起始点</option>
+                <option value="start">唤醒小车</option>
+              </select>
+              <input id="o-site" value="1" size="3" placeholder="站点">
+              <input id="o-slot" value="1A" size="4" placeholder="库位">
+              <button class="b p" id="o-send" onclick="sendCmd()">发送指令</button>
+            </div>
+            <div id="o-offline" class="uhint"
+                 style="display:none;margin-top:10px;background:#fff4e5;
+                        border-left:3px solid #f59e0b;padding:10px 12px;border-radius:6px"></div>
+            <div class="uhint" style="padding-top:12px">
+              ★ 指令发出后由平台（hub.py）决策并写库；小车执行后会上报结果。
+              <br>（无人机不在这里下发 —— 它是【人操作】的，用【📡 无人机上报】页点按钮即可）
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 📜 事件记录 -->
+      <div class="panel" id="p-log">
+        <div class="card">
+          <h2>📜 事件记录 <span class="cnt" id="c-log">—</span>
+            <span style="float:right;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span class="mtab on" id="lg-biz" onclick="logFilter('biz')">只看业务事件</span>
+              <span class="mtab"    id="lg-all" onclick="logFilter('all')">全部</span>
+              <input id="lg-q" placeholder="🔍 搜事件/设备"
+                     onkeydown="if(event.key==='Enter'){loadEvents();}"
+                     style="padding:5px 10px;border:1px solid var(--line);border-radius:6px;
+                            font-size:13px;width:150px;background:var(--bg2);color:var(--fg)">
+              <select id="lg-n" onchange="loadEvents()"
+                      style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;
+                             font-size:13px;background:var(--bg2);color:var(--fg)">
+                <option value="50">50 条</option>
+                <option value="200" selected>200 条</option>
+                <option value="500">500 条</option>
+              </select>
+              <button class="b p" id="lg-btn" style="padding:5px 12px;font-size:13px"
+                      onclick="logExpand()">⛶ 放大</button>
+            </span></h2>
+          <div class="body" style="padding-top:6px;padding-bottom:6px">
+            <div class="log" id="log"><div class="empty">等待事件…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 👤 我的包裹（收件人视角） -->
+      <div class="panel" id="p-mypkg">
+        <div class="card" style="margin-bottom:16px">
+          <h2 id="mp-title">👤 我的包裹</h2>
+          <div class="body">
+            <div class="uhead" style="margin-bottom:8px">
+              <button class="ubtn2 gh" id="mp-back" style="display:none" onclick="navTo('p-user')">← 返回用户管理</button>
+              <button class="ubtn2" onclick="uReload()">🔄 刷新</button>
+            </div>
+            <div class="uhead">
+              <input class="uin" id="uq2" placeholder="🔍 运单号 / 取件码 / 目的地"
+                     onkeydown="if(event.key==='Enter')doSearchMy()" style="flex:1 1 240px">
+              <button class="ubtn2" onclick="doSearchMy()">🔍 搜索</button>
+              <button class="ubtn2 gh" onclick="doSearchMyClear()">清空</button>
+            </div>
+            <div class="uhint" id="myhint">★ 这里只显示你自己的包裹</div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <h2>📍 我的收货点
+            <span class="cnt">以后送到你名下的包裹，默认送到这里
+              · ★ 要改的话请在小车取货【之前】改，取走后目的地会锁定</span></h2>
+          <div class="body">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span style="font-size:13px;color:var(--fg2)">请选择</span>
+              <select id="my-dst" onchange="saveMyDst(this.value)"
+                      style="flex:1;max-width:320px;padding:9px 12px;border:1px solid var(--line);
+                             border-radius:6px;font-size:14px;background:var(--bg2);color:var(--fg)">
+              </select>
+              <span class="uhint" id="my-dst-hint">—</span>
+            </div>
+            <!-- ★★★ 按件设置送达地点（快递多了可以分开送）-->
+            <div id="mydst-table" style="margin-top:18px"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <h2>🗺️ 我的包裹在哪里 <span class="cnt" id="c-umap">—</span></h2>
+          <div class="body">
+            <div class="mapbox" id="ubox">
+              <div id="ugmap" style="width:100%;height:400px;border-radius:6px;background:#e8eaed"></div>
+            </div>
+            <div class="geo-hint" id="uhint">
+              ★ 底图 = 高德地图。载着你包裹的车会显示在地图上（每 2 秒刷新）
+              <br>🖱️ 操作：<b>左键拖动</b>平移 · <b>滚轮</b>缩放 · <b>按住滚轮拖动</b>旋转
+            </div>
+          </div>
+        </div>
+        <div id="myres"></div>
+      </div>
+
+    </main>
+  </div>
+  </div><!-- /view-app -->
+
+  <div class="foot">车-机协同末端配送系统 · 陈嘉誉 · 每 2 秒自动刷新 · <b>v2026.10.08-2207</b></div>
 </div>
 
+<script src="/lib/leaflet.js"></script>
+<script src="/lib/leaflet-rotate.js"></script>
 <script>
 const API = "";                      // 同源部署留空
+
+// ★★★ 全局 fetch 包装（2026-10-09）
+//   ① 每次请求自动带上登录令牌 X-Token（后端要校验）
+//   ② 收到 401（没登录/过期）→ 自动退出到登录页，不用手点
+(function(){
+  const _orig = window.fetch.bind(window);
+  window.fetch = function(url, opts){
+    opts = opts || {};
+    try {
+      if (typeof url === "string" && _token) {
+        const h = {};
+        for (const k in (opts.headers || {})) h[k] = opts.headers[k];
+        h["X-Token"] = _token;
+        opts.headers = h;
+      }
+    } catch (e) {}
+    return _orig(url, opts).then(function(r){
+      try {
+        const u = (typeof url === "string") ? url : "";
+        const isLoginCall = u.indexOf("/api/login") >= 0 ||
+                            u.indexOf("/api/register") >= 0 ||
+                            u.indexOf("/api/find_pwd") >= 0 ||
+                            u.indexOf("/api/reset_pwd") >= 0;
+        if (r.status === 401 && !isLoginCall && _token) {
+          _token = "";
+          try { localStorage.removeItem("u_token"); } catch(e){}
+          if (typeof toast === "function") toast("⚠️ 登录已过期，请重新登录");
+          if (typeof lgLogout === "function") setTimeout(lgLogout, 300);
+        }
+      } catch (e) {}
+      return r;
+    });
+  };
+})();
 let THEME = localStorage.getItem("theme") || "cainiao";
 
 function applyTheme(t){
@@ -232,6 +956,39 @@ function dur(t){
   if(s<60) return s+" 秒"; if(s<3600) return Math.floor(s/60)+" 分"; return Math.floor(s/3600)+" 小时";
 }
 
+// ★★★ 刷新按钮：按【当前角色】刷新对应的一切，并给出反馈
+async function doRefresh() {
+  const b = document.getElementById("rfbtn");
+  // ★★★ 还没登录（在登录页）→ 清空表单 + 复位到登录页
+  if (!_login) {
+    if (b) { b.disabled = true; b.textContent = "⏳ 刷新中"; }
+    lgTab("login");                   // 会清空所有输入框 + 复位提示
+    setTimeout(function() { if (b) { b.textContent = "✓ 已刷新"; } }, 150);
+    setTimeout(function() { if (b) { b.textContent = "🔄 刷新"; b.disabled = false; } }, 1100);
+    return;
+  }
+  const isAdm = (_login && _login.role === "admin");
+  if (b) { b.disabled = true; b.textContent = "⏳ 刷新中"; }
+  try {
+    loadMap();
+    if (isAdm) {
+      await load();              // 数据条 / 货架 / 设备 / 用户 / 包裹（render 里串好的）
+      loadEvents();
+      await loadParcels();
+      await loadUsers();
+      await loadDevicesFull();
+    } else {
+      await uReload();           // ★ 普通用户 → 刷自己的包裹 + 地图
+    }
+    if (b) b.textContent = "✓ 已刷新";
+  } catch (e) {
+    if (b) b.textContent = "✗ 刷新失败";
+  }
+  setTimeout(function() {
+    if (b) { b.textContent = "🔄 刷新"; b.disabled = false; }
+  }, 1100);
+}
+
 async function load(){
   try{
     const r = await fetch(API+"/api/status"); if(!r.ok) throw 0;
@@ -240,66 +997,1950 @@ async function load(){
   loadEvents();
 }
 
+// ==================== ★ 地图与实时位置 ====================
+// ==================== ★★★ 包裹追踪（每件货独立轨迹）====================
+let _parcels = [], _selParcel = null, _pkFilter = "";
+let nowSec = Math.floor(Date.now() / 1000);
+
+// ★★★ 设备实时位置缓存（供"包裹现在在哪"用）
+let _devPos = {};
+async function refreshDevPos(){
+  try{
+    const r = await (await fetch(API+"/api/devices_full")).json();
+    const ds = r.devices || r || [];
+    _devPos = {};
+    ds.forEach(function(d){ _devPos[d.device_id] = d; });
+  }catch(e){}
+}
+
+// ★★★ 一件包裹【现在在哪】（实时）
+function parcelWhere(p){
+  if(!p) return "—";
+  const st = p.status || "";
+  if (st === "PICKED") return "✅ 已取件（在收件人手里）";
+  if (st === "PLACED") return "🏬 已在货柜 " + (p.shelf_no || "—") + " 待取";
+  const dev = _devPos[p.car_id] || _devPos[p.drone_id];
+  if (dev) {
+    if (dev.role === "drone" && dev.lat != null && dev.lon != null) {
+      return "🚁 无人机 " + dev.device_id + " 上（" +
+             Number(dev.lat).toFixed(5) + ", " + Number(dev.lon).toFixed(5) + "）";
+    }
+    if (dev.pos_x != null) {
+      return "🚗 小车 " + dev.device_id + " 上（x=" +
+             Number(dev.pos_x).toFixed(2) + ", y=" + Number(dev.pos_y).toFixed(2) + "）";
+    }
+  }
+  if (st === "ON_DRONE") return "🚁 无人机运输中";
+  if (st === "AT_GATE")  return "🏫 校门口站点";
+  if (st === "LOADED" || st === "DELIVERING") return "🚗 校园配送中";
+  if (st === "CREATED")  return "📥 中转点刚揽收";
+  return "—";
+}
+
+async function loadParcels() {
+  try {
+    await refreshDevPos();          // ★★ 先拿最新设备位置 → "包裹现在在哪"
+    // ★★ 搜索走【服务端】；★ 只认【点搜索/回车时提交】的关键词（打字不触发）
+    const kw = _qCommitted;
+    let url = API + "/api/parcels?";
+    if (_pkFilter && _pkFilter !== "WAY") url += "status=" + encodeURIComponent(_pkFilter) + "&";
+    if (kw) url += "q=" + encodeURIComponent(kw) + "&";
+    const j = await (await fetch(url)).json();
+    _parcels = j.parcels || [];
+    if (_pkFilter === "WAY") {          // ★ 配送中 = 在途的四种状态
+      _parcels = _parcels.filter(function(p) {
+        return ["ON_DRONE", "AT_GATE", "LOADED", "DELIVERING"].indexOf(p.status) >= 0;
+      });
+    }
+    const st = j.stats || {};
+    setBadge("p-parcel", st.parcels_waiting || 0);      // ★ 侧边栏角标
+    const el = document.getElementById("c-pk");
+    if (el) el.textContent = "共 " + (st.parcels_total || 0) + " 件 · 待取 " +
+      (st.parcels_waiting || 0) + " · 已取 " + (st.parcels_picked || 0);
+    // 列表
+    const L = document.getElementById("pklist");
+    if (!_parcels.length) {
+      L.innerHTML = '<div class="empty">暂无包裹</div>';
+    } else {
+      L.innerHTML = _parcels.map(function(p) {
+        const sel = (_selParcel === p.parcel_id) ? " sel" : "";
+        return '<div class="pkitem' + sel + '" onclick="selParcel(\'' + p.parcel_id + '\')">' +
+          '<span class="pid">' + p.parcel_id + '</span>' +
+          '<span><span class="pown">' + (p.owner || "?") + '</span>' +
+          ' <span class="pdst">→ ' + (p.dst || "?") + '</span>' +
+          '<div style="font-size:11px;color:#0ea5e9;margin-top:2px">📍 ' +
+          esc(parcelWhere(p)) + '</div></span>' +
+          '<span class="pkst ' + (p.status || "") + '">' + (p.status_cn || p.status || "") + '</span>' +
+          (p.pick_code ? '<span class="pcode">码 ' + p.pick_code + '</span>' : '') +
+          '</div>';
+      }).join("");
+    }
+    // ★★ 搜索命中 → 自动选中并【滚到那条】；否则保持原选中
+    if (_parcels.length) {
+      const hit = kw && !_parcels.some(function(p) { return p.parcel_id === _selParcel; });
+      if (!_selParcel || hit) {
+        selParcel(_parcels[0].parcel_id);
+        setTimeout(function() {                       // 滚到列表里那一条 + 闪一下
+          const el = document.querySelector(".pkitem.sel");
+          if (el && el.scrollIntoView) {
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            el.style.boxShadow = "0 0 0 3px var(--primary)";
+            setTimeout(function() { el.style.boxShadow = ""; }, 2200);
+          }
+        }, 120);
+      }
+    }
+    if (kw) {
+      const c = document.getElementById("c-pk");
+      if (c) c.textContent = "搜「" + kw + "」命中 " + _parcels.length + " 件";
+    }
+  } catch (e) { /* 静默 */ }
+}
+
+function pkFilter(st) {
+  _pkFilter = st;
+  _selParcel = null;
+  [["", "all"], ["WAY", "way"], ["PLACED", "wait"], ["PICKED", "done"]].forEach(function(v) {
+    const b = document.getElementById("tab-pk-" + v[1]);
+    if (b) b.className = "mtab" + (v[0] === _pkFilter ? " on" : "");
+  });
+  loadParcels();
+}
+
+async function selParcel(pid) {
+  _selParcel = pid;
+  const L = document.getElementById("pklist");
+  if (L) Array.prototype.forEach.call(L.children, function(n) {
+    n.className = n.className.replace(" sel", "");
+    if (n.textContent.indexOf(pid) === 0) n.className += " sel";
+  });
+  const T = document.getElementById("pktl");
+  try {
+    const j = await (await fetch(API + "/api/parcel/" + pid)).json();
+    if (!j.ok) { T.innerHTML = '<div class="empty">' + (j.detail || "读取失败") + '</div>'; return; }
+    const p = j.parcel, tl = (j.timeline || []).slice().reverse();   // ★ 最新在上（菜鸟式）
+    let h = '<div style="font-size:13px;font-weight:700;margin-bottom:2px">' + p.parcel_id +
+      '　' + (p.owner || "") + '　→ ' + (p.dst || "") +
+      (p.mode === "STATION" ? '　<span class="pkst">送驿站</span>' : '') + '</div>' +
+      '<div style="font-size:11.5px;color:var(--fg2);margin-bottom:8px">' +
+      (p.tracking_no ? ("运单号 " + p.tracking_no + "　") : "") +
+      (p.car_id ? ("小车 " + p.car_id + "　") : "") +
+      (p.shelf_no ? ("货柜 " + p.shelf_no + "　") : "") +
+      (p.pick_code ? ("取件码 <b>" + p.pick_code + "</b>") : "") + '</div>';
+    h += '<div class="tl">';
+    tl.forEach(function(t, i) {
+      const up = ["parcel_in", "drone_depart", "drone_arrive"].indexOf(t.event) >= 0;
+      h += '<div class="ti' + (i === 0 ? " on" : "") + (up ? " upstream" : "") + '">' +
+        '<div class="tt">' + fmtTs(t.ts) + '</div>' +
+        '<div class="te">' + esc(t.event_cn || evCn(t.event)) + '</div>' +
+        '<div class="td">' + (t.detail || "") + '</div></div>';
+    });
+    h += '</div>';
+    T.innerHTML = h;
+  } catch (e) {
+    T.innerHTML = '<div class="empty">读取失败</div>';
+  }
+}
+
+// ==================== ★★★ 登录 / 注册（账号 + 密码） ====================
+let _login = null;        // 当前登录用户 {user_id,name,phone,building,role}
+let _token = "";          // ★★★ 登录令牌（后端校验用；每次请求带在 X-Token 头里）
+try { _token = localStorage.getItem("u_token") || ""; } catch (e) {}
+
+// ==================== ★★★ 左侧导航 ====================
+// ★★★ 角色：admin(超级管理员) / drone_admin(无人机管理员) / car_admin(小车管理员) / user(普通用户)
+// ★★★ 角色：admin(超级管理员) / drone_staff(无人机工作人员) / user(普通用户)
+//     无人机是【人操作的】→ 工作人员只干一件事：上报无人机状态
+//     小车是【自动的】→ 不需要人的操作台（管理员在"手动操作"里能派车/召回）
+const ALL = ["admin","drone_staff","user"];
+const MENUS = [
+  { id: "p-over",   icon: "📊", name: "总览",     roles: ["admin"] },
+  { id: "p-map",    icon: "🗺️", name: "地图监控", roles: ALL },
+  // ★★★ 包裹跟踪 / 货架状态 里有【别人的姓名·手机·取件码】→ 只有管理/工作人员能看
+  //     普通用户走「我的包裹」，只看得到自己的 ✓
+  { id: "p-parcel", icon: "📦", name: "包裹跟踪", roles: ["admin","drone_staff"] },
+  { id: "p-rack",   icon: "🗄️", name: "货架状态", roles: ["admin","drone_staff"] },
+  { id: "p-dev",    icon: "🔋", name: "设备管理", roles: ["admin"] },
+  { id: "p-user",   icon: "👥", name: "用户管理", roles: ["admin"] },
+  { id: "p-op",     icon: "🎮", name: "小车手动操作", roles: ["admin"] },
+  { id: "p-drone",  icon: "📡", name: "无人机上报", roles: ["admin","drone_staff"] },
+  { id: "p-log",    icon: "📜", name: "事件记录", roles: ["admin","drone_staff"] },
+  { id: "p-mypkg",  icon: "👤", name: "我的包裹", roles: ["user"] },
+];
+
+// ★ 某角色能看哪些菜单
+function menusFor(role){
+  role = role || "user";
+  return MENUS.filter(function(m){ return (m.roles || ALL).indexOf(role) >= 0; });
+}
+
+// ★★★ 搜索：只认【已提交】的关键词（打字不会触发；点按钮或回车才搜）
+let _qCommitted = "", _qCommittedMy = "";
+
+function doSearch() {                       // 管理员：包裹跟踪
+  const e = document.getElementById("q");
+  _qCommitted = e ? (e.value || "").trim() : "";
+  _selParcel = null;                        // 重置选中 → 搜到后自动选中第一条
+  loadParcels();
+}
+function doSearchClear() {
+  const e = document.getElementById("q"); if (e) e.value = "";
+  _qCommitted = ""; _selParcel = null; loadParcels();
+}
+function doSearchMy() {                     // 用户：我的包裹
+  const e = document.getElementById("uq2");
+  _qCommittedMy = e ? (e.value || "").trim() : "";
+  filterMy();
+}
+function doSearchMyClear() {
+  const e = document.getElementById("uq2"); if (e) e.value = "";
+  _qCommittedMy = ""; filterMy();
+}
+
+function navTo(pid) {
+  if (pid === "p-mypkg" && _login && _login.role !== "admin") { _viewPhone = null; _viewName = ""; }
+  Array.prototype.forEach.call(document.querySelectorAll(".panel"), function(p) {
+    p.className = "panel" + (p.id === pid ? " on" : "");
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(".snav"), function(b) {
+    b.className = "snav" + (b.getAttribute("data-p") === pid ? " on" : "");
+  });
+  try { localStorage.setItem("nav_panel", pid); } catch (e) {}
+  // 切到某个页面时按需刷新 / 重算尺寸
+  if (pid === "p-map")    setTimeout(function() { if (gmap) gmap.invalidateSize(); }, 60);
+  if (pid === "p-mypkg")  setTimeout(function() {
+      if (ugmap) ugmap.invalidateSize();
+      loadDstNames().then(loadMyDst);
+      if (_login && _login.phone) uReload();
+  }, 90);
+  if (pid === "p-dev")    loadDevicesFull();
+  if (pid === "p-user")   loadUsers();
+  if (pid === "p-parcel") loadParcels();
+  if (pid === "p-log")    loadEvents();
+  if (pid === "p-op")     loadCarTargets();       // ★ 刷新"小车"下拉（支持多车）
+  if (pid === "p-drone")  loadDronePage();
+  if (pid === "p-rack") {
+    let k = "transit";
+    try { k = localStorage.getItem("rack_tab") || "transit"; } catch(e) {}
+    rackTab(k);
+  }
+}
+
+function buildNav(role) {
+  const box = document.getElementById("snav");
+  if (!box) return;
+  role = role || "user";
+  const mine = menusFor(role);
+  let h = "";
+  mine.forEach(function(m) {
+    h += '<button class="snav" data-p="' + m.id + '" onclick="navTo(\'' + m.id + '\')">' +
+         '<span>' + m.icon + '</span><span>' + m.name + '</span>' +
+         '<span class="badge" id="bd-' + m.id + '" style="display:none"></span></button>';
+  });
+  box.innerHTML = h;
+  // ★ 每个角色默认进哪个页面（菜单顺序变了，不能只靠"第一个"）
+  const DEFAULT_PANEL = { admin: "p-over", drone_staff: "p-drone", user: "p-mypkg" };
+  let first = DEFAULT_PANEL[role] || (mine[0] || {id:"p-mypkg"}).id;
+  if (!mine.some(function(m){ return m.id === first; })) first = (mine[0] || {id:"p-mypkg"}).id;
+  let last = null;
+  try { last = localStorage.getItem("nav_panel"); } catch (e) {}
+  const ok = mine.some(function(m) { return m.id === last; });
+  navTo(ok ? last : first);
+}
+
+// ★ 角色中文名
+const ROLE_CN = { admin:"超级管理员", drone_staff:"无人机工作人员", user:"普通用户" };
+
+// 侧边栏角标（包裹跟踪=待取数）
+function setBadge(pid, n) {
+  const b = document.getElementById("bd-" + pid);
+  if (!b) return;
+  if (n > 0) { b.textContent = n; b.style.display = ""; }
+  else { b.style.display = "none"; }
+}
+
+// 各面板的默认提示语（切换时复位用）
+const _TIPS = {
+  login:  '★ 演示账号：管理员 <b>admin / admin123</b>　　用户 <b>user / user123</b>',
+  reg:    '★ 注册出来的都是【普通用户】；管理员账号由系统内置',
+  forgot: '★ 填【手机号】+ 再填【姓名】或【楼栋】任意一项，验证通过后显示你的原密码',
+  reset:  '★ 用【手机号 + 当前密码】验证身份，通过后设置新密码（要输两遍确认）'
+};
+
+// ★★ 清空登录/注册/找回三个表单的所有输入框
+function lgClearInputs() {
+  ["lg-acc", "lg-pwd", "rg-name", "rg-phone", "rg-bld", "rg-pwd",
+   "fp-phone", "fp-name", "fp-bld",
+   "rs-phone", "rs-oldpw", "rs-newpw", "rs-newpw2"].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+}
+
+function lgTab(t) {
+  // ① 三个面板【互斥】（修掉叠在一起的问题）
+  ["lg-login", "lg-reg", "lg-forgot", "lg-reset"].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  });
+  const want = { login: "lg-login", reg: "lg-reg", forgot: "lg-forgot",
+                 reset: "lg-reset" }[t] || "lg-login";
+  const w = document.getElementById(want);
+  if (w) w.style.display = "";
+  // ② tab 高亮（忘记密码时两个都不高亮）
+  const a = document.getElementById("lg-t1"), b = document.getElementById("lg-t2");
+  if (a) a.className = "lgtab" + (t === "login" ? " on" : "");
+  if (b) b.className = "lgtab" + (t === "reg" ? " on" : "");
+  // ③ ★★ 切换面板 → 清空所有输入框（不残留上次填的）
+  lgClearInputs();
+  const _le = document.getElementById("lg-err");
+  if (_le) _le.innerHTML = "";
+  // ④ ★ 复位三个提示条
+  const setTip = function(id, html) {
+    const e = document.getElementById(id);
+    if (e) e.innerHTML = html;
+  };
+  setTip("rg-tip", _TIPS.reg);
+  setTip("fp-tip", _TIPS.forgot);
+  setTip("rs-tip", _TIPS.reset);
+  const s1 = document.getElementById("rs-step1"), s2 = document.getElementById("rs-step2");
+  if (s1) s1.style.display = "";
+  if (s2) s2.style.display = "none";
+}
+
+async function lgDoLogin() {
+  const acc = ((document.getElementById("lg-acc") || {}).value || "").trim();
+  const pwd = ((document.getElementById("lg-pwd") || {}).value || "");
+  const err = document.getElementById("lg-err");
+  const say = function(m) { if (err) err.innerHTML = m ? ("★ " + m) : ""; };
+  if (!acc || !pwd) { say("账号和密码都要填"); return; }
+  say("");
+  try {
+    const j = await (await fetch(API + "/api/login_pwd", { method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({account: acc, password: pwd}) })).json();
+    if (!j.ok) { say(j.detail); return; }
+    lgApply(j.user, j.token);
+  } catch (e) { say("登录失败：" + e); }
+}
+
+async function lgDoRegister() {
+  const name = ((document.getElementById("rg-name") || {}).value || "").trim();
+  const phone = ((document.getElementById("rg-phone") || {}).value || "").trim();
+  const bld = ((document.getElementById("rg-bld") || {}).value || "").trim();
+  const pwd = ((document.getElementById("rg-pwd") || {}).value || "");
+  const tip = document.getElementById("rg-tip");
+  if (!name || !phone || !pwd) { if (tip) tip.innerHTML = "★ 姓名、手机号、密码都要填"; return; }
+  if (pwd.length < 6) { if (tip) tip.innerHTML = "★ 密码至少 6 位"; return; }
+  try {
+    const j = await (await fetch(API + "/api/register", { method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name: name, phone: phone, building: bld, password: pwd}) })).json();
+    if (!j.ok) { if (tip) tip.innerHTML = "★ " + j.detail; return; }
+    alert("✓ 注册成功！现在用你的手机号登录");
+    lgApply(j.user, j.token);
+  } catch (e) { if (tip) tip.innerHTML = "★ 注册失败：" + e; }
+}
+
+function lgLogout() {
+  _login = null;
+  _token = "";
+  try { localStorage.removeItem("u_login"); } catch (e) {}
+  try { localStorage.removeItem("u_token"); } catch (e) {}
+  const V = document.getElementById("view-login"); if (V) V.style.display = "";
+  const A = document.getElementById("view-app");   if (A) A.style.display = "none";
+  const lo = document.getElementById("tb-logout");  if (lo) lo.style.display = "none";
+  const tu = document.getElementById("tb-user"); if (tu) tu.textContent = "";
+  _rsPhone = ""; _rsOldPw = "";
+  lgTab("login");                        // ★ 退出 → 回到登录页，输入框和提示都复位
+}
+
+function lgApply(u, token) {
+  _login = u || {};
+  try { localStorage.setItem("u_login", JSON.stringify(_login)); } catch (e) {}
+  // ★★★ 保存登录令牌（后续所有请求都要带）
+  if (token) {
+    _token = token;
+    try { localStorage.setItem("u_token", token); } catch (e) {}
+  }
+  const V = document.getElementById("view-login"); if (V) V.style.display = "none";
+  const A = document.getElementById("view-app");   if (A) A.style.display = "";
+  const lo = document.getElementById("tb-logout");  if (lo) lo.style.display = "";
+  const tu = document.getElementById("tb-user");
+  const isAdm = (_login.role === "admin");
+  if (tu) {
+    const nm = _login.name || "";
+    const roleTxt = isAdm ? "管理员" : "收件人";
+    // ★ 名字和角色文字重复时只显示一次（避免"管理员 管理员"）
+    const showBadge = (nm.trim() !== roleTxt);
+    tu.innerHTML =
+      '<span style="font-size:14px">' + (isAdm ? "⚙️" : "👤") + "</span>" +
+      "<b>" + nm + "</b>" +
+      (_login.building ? '<span style="opacity:.9">· ' + _login.building + "</span>" : "") +
+      (showBadge ? '<span class="rolebadge' + (isAdm ? " adm" : "") + '">' + roleTxt + "</span>" : "");
+  }
+  lgClearInputs();                       // ★ 登录成功后清空登录框（下次退出时是干净的）
+  buildNav(_login.role || "user");       // ★ 按角色生成左侧菜单
+  if (isAdm) { try { load(); loadEvents(); } catch (e) {} }
+  else { navTo("p-mypkg"); }
+}
+
+// ==================== ★★★ 忘记密码 / 找回 ====================
+function lgForgot() {
+  lgTab("forgot");
+  const t = document.getElementById("fp-tip");
+  if (t) t.innerHTML = _TIPS.forgot;
+}
+
+// ★★★ 找回密码：账号 + 手机号 + 宿舍楼号（三项验证）
+// ★ 把找回的新密码带回登录框（先切页清空，再填值）
+function lgUseFound() {
+  const d = window._foundPwd || {};
+  lgTab("login");
+  const a = document.getElementById("lg-acc");
+  const b = document.getElementById("lg-pwd");
+  if (a) a.value = d.phone || "";
+  if (b) b.value = d.password || "";
+  if (a) a.focus();
+}
+
+// ★★★ 重置密码：第一步 验证身份（手机号 + 当前密码）
+let _rsPhone = "", _rsOldPw = "";
+function lgReset() {
+  lgTab("reset");
+  const t = document.getElementById("rs-tip");
+  if (t) t.innerHTML = _TIPS.reset;
+}
+async function rsVerify() {
+  const ph = ((document.getElementById("rs-phone") || {}).value || "").trim();
+  const op = ((document.getElementById("rs-oldpw") || {}).value || "");
+  const t = document.getElementById("rs-tip");
+  if (!ph || !op) { if (t) t.innerHTML = "★ 手机号和当前密码都要填"; return; }
+  try {
+    // 用登录接口验证"手机号 + 当前密码"是否正确
+    const j = await (await fetch(API + "/api/login_pwd", { method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({account: ph, password: op}) })).json();
+    if (!j.ok) { if (t) t.innerHTML = "★ 验证失败：" + j.detail; return; }
+    _rsPhone = ph;
+    _rsOldPw = op;                      // ★ 暂存当前密码，第二步一起传（后端要再校验一次）
+    const s1 = document.getElementById("rs-step1"), s2 = document.getElementById("rs-step2");
+    if (s1) s1.style.display = "none";
+    if (s2) s2.style.display = "";
+    if (t) t.innerHTML = "✓ 身份验证通过（" + (j.user.name || "") + "），请输入新密码";
+    const n1 = document.getElementById("rs-newpw"); if (n1) n1.focus();
+  } catch (e) { if (t) t.innerHTML = "★ 验证失败：" + e; }
+}
+
+// ★★★ 重置密码：第二步 提交新密码（两次要一致）
+async function rsDoReset() {
+  const n1 = ((document.getElementById("rs-newpw") || {}).value || "");
+  const n2 = ((document.getElementById("rs-newpw2") || {}).value || "");
+  const t = document.getElementById("rs-tip");
+  if (!n1 || !n2) { if (t) t.innerHTML = "★ 新密码要输两遍"; return; }
+  if (n1 !== n2) { if (t) t.innerHTML = "★ 两次输入的密码不一样，请核对"; return; }
+  if (n1.length < 6) { if (t) t.innerHTML = "★ 新密码至少 6 位"; return; }
+  try {
+    const j = await (await fetch(API + "/api/reset_pwd2", { method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({phone: _rsPhone, password: _rsOldPw, new_password: n1}) })).json();
+    if (!j.ok) { if (t) t.innerHTML = "★ " + j.detail; return; }
+    window._foundPwd = { phone: _rsPhone, password: n1 };
+    if (t) t.innerHTML = "✓ " + j.detail +
+      '<div style="margin-top:8px"><button class="ubtn" style="width:100%" onclick="lgUseFound()">' +
+      "→ 用新密码去登录</button></div>";
+  } catch (e) { if (t) t.innerHTML = "★ 重置失败：" + e; }
+}
+
+// ★ 找回密码：只显示原密码（不改密码）
+async function fpFind() {
+  const ph = ((document.getElementById("fp-phone") || {}).value || "").trim();
+  const nm = ((document.getElementById("fp-name") || {}).value || "").trim();
+  const bld = ((document.getElementById("fp-bld") || {}).value || "").trim();
+  const t = document.getElementById("fp-tip");
+  if (!ph) { if (t) t.innerHTML = "★ 请填手机号"; return; }
+  if (!nm && !bld) { if (t) t.innerHTML = "★ 再填【姓名】或【宿舍楼号】任意一项来验证身份"; return; }
+  try {
+    const j = await (await fetch(API + "/api/find_pwd", { method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({phone: ph, name: nm, building: bld}) })).json();
+    if (!j.ok) { if (t) t.innerHTML = "★ " + j.detail; return; }
+    // ★ 找回成功 → 只显示原密码（不改密码；按钮走函数，避免内联拼引号）
+    window._foundPwd = { phone: ph, password: j.password };
+    if (t) t.innerHTML = "✓ " + j.detail +
+      '<div style="margin-top:10px;font-size:13px">你的密码是：' +
+      '<b style="font-size:20px;letter-spacing:4px;color:var(--primary)">' + (j.password || "?") + '</b></div>' +
+      '<div style="margin-top:10px">' +
+      '<button class="ubtn" style="width:100%" onclick="lgUseFound()">→ 用这个密码去登录</button></div>';
+    if (j.user) _viewName = j.user.name || "";
+  } catch (e) { if (t) t.innerHTML = "★ 找回失败：" + e; }
+}
+
+// ==================== ★★★ 用户详情 / 设密码（管理员） ====================
+function userDetail(uid) {
+  // ★ 先按 user_id 找；找不到再按手机号找（兼容"从包裹聚合"出来的条目）
+  let u = (_users || []).filter(function(x) { return x.user_id === uid; })[0];
+  if (!u) u = (_users || []).filter(function(x) { return x.phone === uid; })[0];
+  if (!u) { alert("找不到该用户（可能这条是从包裹聚合的，还没建档）"); return; }
+  const ts = function(t) {
+    if (!t) return "-";
+    const d = new Date(t * 1000), z = function(n){ return (n<10?"0":"")+n; };
+    return d.getFullYear() + "-" + z(d.getMonth()+1) + "-" + z(d.getDate()) + " " +
+           z(d.getHours()) + ":" + z(d.getMinutes());
+  };
+  const rows = [
+    ["用户编号", u.user_id],
+    ["姓名", u.name || "-"],
+    ["登录账号（手机号）", u.phone || "-（没填，登录不了）"],
+    ["楼栋", u.building || "-"],
+    ["备注（宿舍号等）", u.note || "-"],
+    ["角色", u.role === "admin" ? "👑 超级管理员"
+             : (u.role === "drone_staff" ? "🧑‍💼 无人机工作人员" : "🔵 普通用户")],
+    ["状态", (u.active === 0) ? "⛔ 已停用" : "✓ 正常"],
+    ["密码", u.has_pwd ? "已设置" : "⚠️ 未设置（不能登录，请点【🔑 设密码】）"],
+    ["注册时间", ts(u.created_at)],
+    ["包裹总数", (u.total || 0) + " 件"],
+    ["其中", "待取 " + (u.waiting||0) + " · 在途 " + (u.onway||0) + " · 已取 " + (u.picked||0)],
+  ];
+  let h = '<div style="font-size:13.5px">';
+  rows.forEach(function(r, i) {
+    h += '<div style="display:flex;gap:10px;padding:8px 2px;' +
+         (i < rows.length - 1 ? "border-bottom:1px dashed var(--line);" : "") + '">' +
+         '<div style="flex:0 0 140px;color:var(--fg2)">' + r[0] + "</div>" +
+         '<div style="flex:1;font-weight:600">' + r[1] + "</div></div>";
+  });
+  h += "</div>";
+  __modal("👤 " + (u.name || "") + " 的详细信息", h,
+    '<button class="ubtn2" onclick="userSetPwd(\'' + u.user_id + '\',\'' + (u.name||"") + '\')">🔑 重置密码</button>' +
+    '<button class="ubtn2 gh" onclick="__modalClose()">关闭</button>');
+}
+
+async function userSetPwd(uid, nm) {
+  const u = (_users || []).filter(function(x) { return x.user_id === uid; })[0] || {};
+  const pw = prompt("给「" + nm + "」设置新密码（至少 6 位）：", "");
+  if (pw === null) return;
+  if (pw.length < 6) { alert("密码至少 6 位"); return; }
+  try {
+    const j = await (await fetch(API + "/api/user_setpwd", { method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({user_id: uid, password: pw}) })).json();
+    alert(j.ok ? ("✓ " + j.detail) : ("✗ " + j.detail));
+    if (j.ok) { __modalClose(); loadUsers(); }
+  } catch (e) { alert("设密码失败：" + e); }
+}
+
+// ---- 通用弹窗 ----
+function __modal(title, bodyHtml, footHtml) {
+  __modalClose();
+  const ov = document.createElement("div");
+  ov.id = "__modal";
+  ov.style.cssText = "position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.42);" +
+    "z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px";
+  ov.innerHTML = '<div style="background:var(--card);border-radius:12px;max-width:520px;width:100%;' +
+    'max-height:86vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">' +
+    '<div style="padding:15px 18px;border-bottom:1px solid var(--line);font-weight:700;' +
+    'font-size:15px">' + title + "</div>" +
+    '<div style="padding:16px 18px">' + bodyHtml + "</div>" +
+    '<div style="padding:12px 18px;border-top:1px solid var(--line);text-align:right;' +
+    'display:flex;gap:8px;justify-content:flex-end">' + (footHtml || "") + "</div></div>";
+  ov.onclick = function(e) { if (e.target === ov) __modalClose(); };
+  document.body.appendChild(ov);
+}
+function __modalClose() {
+  const m = document.getElementById("__modal");
+  if (m) m.remove();
+}
+
+// ---- 用户视角：在"我的包裹"里搜索 ----
+let _myParcels = [];
+function filterMy() {
+  const box = document.getElementById("myres");
+  if (!box) return;
+  const kw = _qCommittedMy;
+  const list = kw ? _myParcels.filter(function(p) {
+    return [p.parcel_id, p.owner, p.dst, p.tracking_no, p.pick_code, p.status_cn]
+      .join(" ").toUpperCase().indexOf(kw.toUpperCase()) >= 0;
+  }) : _myParcels;
+  const hint = document.getElementById("myhint");
+  if (kw) {
+    if (hint) hint.innerHTML = "★ 搜索「<b>" + kw + "</b>」→ 命中 <b>" + list.length + "</b> 件";
+  } else {
+    if (hint) hint.innerHTML = "★ 共 <b>" + _myParcels.length + "</b> 件包裹";
+  }
+  box.innerHTML = list.length ? list.map(myCardHTML).join("")
+    : '<div class="empty">没有匹配的包裹（换个取件码 / 运单号试试）</div>';
+  renderMyDestTable(_myParcels);        // ★ 按件设置送达地点（始终显示全部）
+  // ★★ 命中很少时 → 自动滚到第一条并高亮（"弹到对应的快递那块"）
+  if (kw && list.length && list.length <= 3) {
+    setTimeout(function() {
+      const first = box.firstElementChild;
+      if (!first) return;
+      try { first.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { first.scrollIntoView(); }
+      first.style.boxShadow = "0 0 0 3px var(--primary)";
+      first.style.transition = "box-shadow .3s";
+      setTimeout(function() { first.style.boxShadow = ""; }, 2600);
+    }, 100);
+  }
+}
+
+// ★★★ 管理员：从"用户管理"点某用户 → 看他的包裹
+let _viewPhone = null, _viewName = "";
+
+function viewUserPkg(uid) {
+  const u = (_users || []).filter(function(x) { return x.user_id === uid; })[0];
+  if (!u) { alert("找不到该用户"); return; }
+  _viewPhone = u.phone || "";
+  _viewName = u.name || "";
+  navTo("p-mypkg");
+  uReload();
+}
+
+async function uReload() {
+  // ★ 管理员查看某用户时用 _viewPhone；否则看自己
+  const phone = _viewPhone || (_login && _login.phone) || "";
+  const isSelf = !_viewPhone;
+  const title = document.getElementById("mp-title");
+  const back = document.getElementById("mp-back");
+  if (title) title.innerHTML = isSelf ? "👤 我的包裹"
+                                      : ("📦 <b>" + _viewName + "</b> 的包裹");
+  if (back) back.style.display = isSelf ? "none" : "";
+  if (!phone) {
+    const h0 = document.getElementById("myhint");
+    if (h0) h0.innerHTML = "★ 该用户没留手机号，查不到包裹（可在用户管理里补上）";
+    const b0 = document.getElementById("myres"); if (b0) b0.innerHTML = "";
+    renderUserMap([]);
+    return;
+  }
+  const hint = document.getElementById("myhint");
+  if (hint) hint.innerHTML = "正在读取包裹…";
+  try {
+    const j = await (await fetch(API + "/api/my?phone=" + encodeURIComponent(phone))).json();
+    const box = document.getElementById("myres");
+    if (!j.ok) {
+      if (hint) hint.innerHTML = "★ " + (j.detail || "暂时没有你的包裹");
+      if (box) box.innerHTML = "";
+      renderUserMap([]);
+      return;
+    }
+    _myParcels = j.parcels || [];
+    if (!_dstNames.length) { await loadDstNames(); loadMyDst(); }   // ★ 保证"改送到"有选项
+    renderMyDestTable(_myParcels);                                  // ★ 按件设置送达地点
+    if (hint) hint.innerHTML = "★ 共 <b>" + j.count + "</b> 件包裹";
+    filterMy();                         // ★ 走一遍搜索过滤（没输入就全显示）
+    renderUserMap(_myParcels);
+  } catch (e) { if (hint) hint.innerHTML = "★ 读取失败：" + e; }
+}
+
+// ★ 用户查询（保留原来的"按手机号/取件码直接查"作为免登入口）
+async function myQuery(preset) {
+  const inp = document.getElementById("uq");
+  const hint = document.getElementById("myhint");
+  const box = document.getElementById("myres");
+  const q = (preset || (inp ? inp.value : "")).trim();
+  if (!q) {
+    hint.innerHTML = '★ 请先输入手机号 / 取件码 / 姓名';
+    box.innerHTML = ""; return;
+  }
+  if (inp && preset) inp.value = preset;
+  hint.innerHTML = "正在查询…";
+  box.innerHTML = "";
+  try {
+    const j = await (await fetch(API + "/api/my?q=" + encodeURIComponent(q))).json();
+    if (!j.ok) { hint.innerHTML = "★ " + (j.detail || "没查到"); renderUserMap([]); return; }
+    hint.innerHTML = '★ 查到 <b>' + j.count + '</b> 件包裹（按「' + j.query + '」）';
+    box.innerHTML = (j.parcels || []).map(myCardHTML).join("");
+    renderUserMap(j.parcels || []);          // ★ 地图也一起更新
+  } catch (e) {
+    hint.innerHTML = "★ 查询失败：" + e;
+  }
+}
+
+// ==================== ★★★ 用户的收货点 & 改送到 ====================
+let _dstNames = [];
+async function loadDstNames(){
+  try{
+    const j = await (await fetch(API+"/api/dst_slots")).json();
+    _dstNames = Object.keys(j.groups || {});
+  }catch(e){ _dstNames = []; }
+}
+function dstOptions(cur){
+  const names = _dstNames.slice();
+  if (cur && names.indexOf(cur) < 0) names.unshift(cur);
+  return '<option value="">— 请选择 —</option>' + names.map(function(n){
+    return '<option value="' + esc(n) + '"' + (n === cur ? " selected" : "") + '>' +
+           esc(n) + '</option>';
+  }).join("");
+}
+// ★★★ 按件设置送达地点（每件快递可以送不同地方）
+function renderMyDestTable(list){
+  const box = document.getElementById("mydst-table");
+  if(!box) return;
+  const arr = list || _myParcels || [];
+  if(!arr.length){ box.innerHTML = ""; return; }
+  const DEST_LOCKED = ["LOADED", "DELIVERING", "PLACED", "PICKED"];
+  const LOCK_WHY = {LOADED:"已被小车装载", DELIVERING:"小车正在配送途中",
+                    PLACED:"已放入货柜", PICKED:"已被取件"};
+  let h = '<div style="font-size:12px;color:var(--fg2);font-weight:600;margin-bottom:8px">' +
+          '按件设置送达地点（快递多了可以分开送）</div>';
+  // ★ 表头（让它一看就是一张表）
+  h += '<div style="display:grid;grid-template-columns:1.4fr 1fr 1.4fr;gap:12px;' +
+       'padding:0 0 6px;border-bottom:2px solid var(--line)">' +
+       '<div style="font-size:12px;color:var(--fg2);font-weight:700">快递单 / 包裹号</div>' +
+       '<div style="font-size:12px;color:var(--fg2);font-weight:700">当前目的地</div>' +
+       '<div style="font-size:12px;color:var(--fg2);font-weight:700">设置送到哪</div></div>';
+  arr.forEach(function(p){
+    const locked = DEST_LOCKED.indexOf(p.status || "") >= 0;
+    const no = p.tracking_no || p.parcel_id;
+    h += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;' +
+         'padding:10px 0;border-top:1px solid var(--line)">';
+    h += '<div style="min-width:170px"><b style="font-size:13px">' + esc(no) + '</b>' +
+         '<div style="font-size:11px;color:var(--fg2)">' + esc(p.parcel_id) + ' · ' +
+         esc(p.status_cn || p.status || "") + '</div></div>';
+    h += '<div style="font-size:13px;color:var(--fg2)">当前目的地 <b>' +
+         esc(p.dst || "—") + '</b></div>';
+    h += '<span style="flex:1"></span>';
+    if (locked) {
+      h += '<span style="font-size:12px;color:var(--fg2)">🔒 已锁定（' +
+           esc(LOCK_WHY[p.status] || "已取件") + '）</span>';
+    } else {
+      h += '<select onchange="setMyDest(\'' + esc(p.parcel_id) + '\', this.value)" ' +
+           'style="min-width:200px;padding:7px 10px;border:1px solid var(--line);' +
+           'border-radius:6px;font-size:13px;background:var(--bg2);color:var(--fg)">' +
+           dstOptions(p.dst || "") + '</select>';
+    }
+    h += '</div>';
+  });
+  box.innerHTML = h;
+}
+
+async function loadMyDst(){
+  const sel = document.getElementById("my-dst");
+  if(!sel) return;
+  const phone = (_login && _login.phone) || "";
+  let cur = "";
+  try{
+    const j = await (await fetch(API+"/api/my/dst?phone=" + encodeURIComponent(phone))).json();
+    cur = j.dst_point || "";
+  }catch(e){}
+  sel.innerHTML = dstOptions(cur);
+  const h = document.getElementById("my-dst-hint");
+  if(h) h.textContent = cur ? ("当前：" + cur) : "还没设置";
+}
+async function saveMyDst(dst){
+  const phone = (_login && _login.phone) || "";
+  if(!dst) return;
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/my/dst", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({phone: phone, dst_point: dst})})).json();
+  }catch(e){ r = {}; }
+  if(r.ok){
+    toast("✅ 收货点已设为 " + dst);
+    const h = document.getElementById("my-dst-hint");
+    if(h) h.textContent = "当前：" + dst;
+  } else { alert("保存失败：" + (r.error || r.detail || "未知")); }
+}
+
+// ★ 用户改某件包裹"送到哪"（后端会校验只能改自己的）
+async function setMyDest(pid, dst){
+  const phone = (_login && _login.phone) || "";
+  if(!dst) return;
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/parcel/set_dest", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({parcel_id: pid, phone: phone, dst: dst})})).json();
+  }catch(e){ r = {}; }
+  if(r.ok){ toast("✅ 已改送到 " + dst); uReload(); }
+  else { alert("改不了：" + (r.detail || r.error || "未知")); uReload(); }
+}
+
+function myCardHTML(p) {
+  const tl = (p.timeline || []).slice().reverse();
+  let h = '<div class="mycard">';
+  h += '<div class="myhead">';
+  h += '<span style="font-weight:800;font-size:14px">' + p.parcel_id + '</span>';
+  h += '<span class="pkst ' + (p.status || "") + '">' + (p.status_cn || p.status || "") + '</span>';
+  if (p.pick_code) h += '<span style="margin-left:auto;font-size:12px;color:var(--fg2)">取件码</span>' +
+                        '<span class="mycode">' + p.pick_code + '</span>';
+  h += '</div>';
+  h += '<div class="mymeta">';
+  if (p.owner) h += '收件人 <b>' + p.owner + '</b>　';
+  if (p.dst)   h += '送到 <b>' + p.dst + '</b>　';
+  if (p.shelf_no) h += '货柜 <b>' + p.shelf_no + '</b>　';
+  if (p.tracking_no) h += '快递单号 ' + p.tracking_no;
+  h += '</div>';
+  // ★★★ "送到哪"由用户自己定，但【小车一取走就锁定】：
+  //     否则小车正跑着被改目的地 → 要重新规划路线，不合理 ✗
+  //     可改阶段：已揽收 / 无人机运输中 / 已到校门口站点（= 小车还没取）
+  //     锁定阶段：已装车 / 配送中 / 已入柜 / 已取件
+  const _isSelf = !_viewPhone;
+  const DEST_LOCKED = ["LOADED", "DELIVERING", "PLACED", "PICKED"];
+  const _locked = DEST_LOCKED.indexOf(p.status || "") >= 0;
+  if (_isSelf && !_locked) {
+    h += '<div style="display:flex;align-items:center;gap:10px;margin:10px 0 2px;' +
+         'padding:9px 12px;background:var(--bg2);border-radius:8px">' +
+         '<span style="font-size:13px;color:var(--fg2);white-space:nowrap">📍 送到哪</span>' +
+         '<select onchange="setMyDest(\'' + esc(p.parcel_id) + '\', this.value)" ' +
+         'style="flex:1;max-width:260px;padding:7px 10px;border:1px solid var(--line);' +
+         'border-radius:6px;font-size:13px;background:var(--bg);color:var(--fg)">' +
+         dstOptions(p.dst || "") + '</select>' +
+         '<span style="font-size:12px;color:var(--fg2)">★ 小车取货前可改，取走后锁定</span>' +
+         '</div>';
+  } else if (_isSelf) {
+    h += '<div style="margin:10px 0 2px;padding:9px 12px;background:var(--bg2);' +
+         'border-radius:8px;font-size:13px;color:var(--fg2)">' +
+         '🔒 目的地已锁定：<b>' + esc(p.dst || "—") + '</b>' +
+         '（小车已取件，配送途中不能改）</div>';
+  }
+  if (p.status === "PLACED") {
+    h += '<div class="mytip">★ 包裹已经放好啦 —— 凭取件码 <b>' + (p.pick_code || "") +
+         '</b> 到 <b>' + (p.shelf_no || p.dst || "货柜") + '</b> 自取</div>';
+  } else if (p.status === "PICKED") {
+    h += '<div class="mytip" style="border-style:solid">✓ 已完成取件，感谢使用</div>';
+  }
+  h += '<div style="font-size:12px;color:var(--fg2);font-weight:600;margin:12px 0 4px">运输轨迹</div>';
+  h += '<div class="tl">';
+  tl.forEach(function(t, i) {
+    const up = ["parcel_in", "drone_depart", "drone_arrive"].indexOf(t.event) >= 0;
+    h += '<div class="ti' + (i === 0 ? " on" : "") + (up ? " upstream" : "") + '">' +
+      '<div class="tt">' + fmtTs(t.ts) + '</div>' +
+      '<div class="te">' + esc(t.event_cn || evCn(t.event)) + '</div>' +
+      '<div class="td">' + (t.detail || "") + '</div></div>';
+  });
+  h += '</div></div>';
+  return h;
+}
+
+// ★★ 用户地图：高德底图 + 载着你包裹的车（人看得懂 ✓）
+let ugmap = null, ugLayers = [];
+function initUGMap() {
+  if (ugmap) return true;
+  const el = document.getElementById("ugmap");
+  if (!el || !el.clientWidth) return false;
+  const c = rosToLatLng(0, 0) || G_CENTER;
+  ugmap = L.map(el, Object.assign({ center: c, zoom: 17, zoomControl: true }, ROT_OPTS));
+  enableMiddleRotate(ugmap);       // ★ 按住滚轮 → 旋转地图
+  L.tileLayer("https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}",
+    { subdomains: "1234", maxZoom: 19, minZoom: 3, attribution: "© 高德地图" }).addTo(ugmap);
+  ugmap.attributionControl.setPrefix("");
+  // 校园参考点（取货/送达站点）
+  SITES_GEO.forEach(function(sp) {
+    L.marker([sp.lat, sp.lon]).addTo(ugmap).bindPopup("<b>" + sp.n + "</b>");
+  });
+  return true;
+}
+
+function renderUserMap(parcels) {
+  const cnt = document.getElementById("c-umap");
+  const hint = document.getElementById("uhint");
+  const box = document.getElementById("ubox");
+  if (!box) return;
+  const withV = (parcels || []).filter(function(p) { return p.vehicle; });
+  const placed = (parcels || []).filter(function(p) { return p.status === "PLACED"; });
+  // 清掉上一次画的
+  ugLayers.forEach(function(m) { if (ugmap) ugmap.removeLayer(m); });
+  ugLayers = [];
+  if (!initUGMap()) {                       // 容器还不可见 → 稍后重试
+    if (cnt) cnt.textContent = "地图加载中…";
+    setTimeout(function() { renderUserMap(parcels); }, 400);
+    return;
+  }
+  setTimeout(function() { ugmap.invalidateSize(); }, 60);
+  if (!withV.length) {
+    if (cnt) cnt.textContent = "—";
+    if (hint) hint.innerHTML = placed.length
+      ? "★ 你的包裹已经放到货柜啦 —— 凭取件码去取即可 ✓"
+      : "★ 查询后，载着你包裹的车会显示在地图上";
+    return;
+  }
+  if (cnt) cnt.textContent = withV.length + " 件在途";
+  if (hint) hint.innerHTML = "★ 图上的 🚚 就是载着你包裹的配送车（每 2 秒刷新）";
+  withV.forEach(function(p, i) {
+    const ll = rosToLatLng(p.vehicle.x, p.vehicle.y);
+    if (!ll) return;
+    ugLayers.push(L.circleMarker(ll, { radius: 9, color: "#fff", weight: 3,
+      fillColor: "#00a0e9", fillOpacity: 1 }).addTo(ugmap)
+      .bindPopup("<b>配送中</b><br>送到 " + (p.dst || "目的地") + "<br>取件码 " + (p.pick_code || "-")));
+    ugLayers.push(L.marker(ll, { title: "配送车" }).addTo(ugmap)
+      .bindPopup("<b>🚚 你的包裹在这</b><br>" +
+                 "包裹号 " + (p.parcel_id || "-") + "<br>" +
+                 (p.marker_id != null ? ("AR码 " + p.marker_id + " 号<br>") : "") +
+                 "送到 " + (p.dst || "目的地") +
+                 "<br>取件码 " + (p.pick_code || "-")).openPopup());
+    if (i === 0) ugmap.setView(ll, ugmap.getZoom());
+  });
+}
+
+// ★★ 设备信息（含电量 / 当前运几件 / 位置）
+async function loadDevicesFull() {
+  let ds = [];
+  try { ds = (await (await fetch(API + "/api/devices_full")).json()).devices || []; }
+  catch (e) { return; }
+  const c = document.getElementById("c-dev"), box = document.getElementById("devs");
+  if (!c || !box) return;
+  const cars = ds.filter(function(d){ return d.role === "car"; });
+  const drones = ds.filter(function(d){ return d.role === "drone"; });
+  c.textContent = ds.length + " 台（小车 " + cars.length + " · 无人机 " + drones.length + "）";
+  if (!ds.length) { box.innerHTML = '<div class="empty">暂无设备</div>'; return; }
+  box.innerHTML = ds.map(function(d) {
+    const online = d.online;
+    const st = !online ? "off" : (d.status === "busy" ? "busy" : "idle");
+    const cn = !online ? "离线" : (d.status === "busy" ? "运输中" : "空闲");
+    const sec = d.last_seen ? (nowSec - d.last_seen) : null;
+    const ago = (sec == null) ? "" : (sec < 60 ? sec + "秒前" :
+                (sec < 3600 ? Math.round(sec / 60) + "分前" : Math.round(sec / 3600) + "小时前"));
+    let bat = '<span class="bat none">电量未上报</span>';
+    if (d.battery != null) {
+      const v = Math.max(0, Math.min(100, d.battery));
+      const col = v > 60 ? "#00b578" : (v > 25 ? "#ff8f1f" : "#f5222d");
+      bat = '<span class="bat"><span class="batbar"><i style="width:' + v + '%;background:' + col +
+            '"></i></span>' + Math.round(v) + '%' +
+            (d.battery_v ? ('　' + Number(d.battery_v).toFixed(1) + 'V') : '') + '</span>';
+    }
+    const nm = d.name || (d.role === "car" ? "小车 " + d.device_id : "无人机 " + d.device_id);
+    return '<div class="dev"><div>' +
+      '<span class="dn">' + nm + '</span>' +
+      '<span class="dr">' + (d.role === "car" ? "小车" : (d.role === "drone" ? "无人机" : d.role || "?")) + '</span>' +
+      (d.carrying ? '<span class="dr" style="color:var(--primary);border-color:var(--primary)">运 ' + d.carrying + ' 件</span>' : '') +
+      '</div><div style="font-size:12.5px;display:flex;align-items:center">' + bat +
+      '<span class="dot ' + st + '"></span>' + cn +
+      '<span style="color:#6b7280;font-size:11px">' + (online ? "" : " " + ago) + '</span></div></div>';
+  }).join("");
+}
+
+// ★★★ 用户管理（增删改 + 按楼栋分组）
+let _users = [];
+async function loadUsers() {
+  const bld = (document.getElementById("u-bld") || {}).value || "";
+  let j = {};
+  try { j = await (await fetch(API + "/api/users" + (bld ? ("?building=" + encodeURIComponent(bld)) : ""))).json(); }
+  catch (e) { return; }
+  _users = j.users || [];
+  const c = document.getElementById("c-usr"), box = document.getElementById("users");
+  if (!c || !box) return;
+  c.textContent = _users.length + " 位";
+  // 楼栋下拉（保持当前选择）
+  const sel = document.getElementById("u-bld");
+  if (sel) {
+    const bs = Array.from(new Set((j.users || []).map(function(u){ return u.building || "(未填楼栋)"; })));
+    const cur = sel.value;
+    // ★★ "(未填楼栋)" 用 __none__ → 后端筛【没填楼栋的人】（点它能用 ✓）
+    //    "" = 全部（不筛选）
+    sel.innerHTML = '<option value="">全部楼栋</option>' +
+      (bs.indexOf("(未填楼栋)") >= 0 ? '<option value="__none__">（未填楼栋）</option>' : "") +
+      bs.filter(function(x){ return x !== "(未填楼栋)"; })
+        .map(function(x){ return '<option value="' + esc(x) + '">' + esc(x) + '</option>'; }).join("");
+    sel.value = cur;
+  }
+  if (!_users.length) {
+    box.innerHTML = '<div class="empty">' +
+      (j.empty && j.suggest && j.suggest.length
+        ? ('还没有用户 → 点【从包裹导入】可把包裹里的收件人加进来（发现 ' + j.suggest.length + ' 人）')
+        : '暂无用户') + '</div>';
+    return;
+  }
+  // ★★★ 分三类渲染：管理员 / 工作人员 / 普通用户（按楼栋）
+  const admins = _users.filter(function(u){ return u.role === "admin"; });
+  const staffs = _users.filter(function(u){ return u.role === "drone_staff" || u.role === "car_staff"; });
+  const normal = _users.filter(function(u){ return ["admin","drone_staff","car_staff"].indexOf(u.role) < 0; });
+  const g = {};
+  normal.forEach(function(u) { const k = u.building || "(未填楼栋)"; (g[k] = g[k] || []).push(u); });
+  const GROUPS = [];
+  if (admins.length) GROUPS.push(["👑 管理员", admins]);
+  if (staffs.length) GROUPS.push(["🧑\u200d💼 工作人员", staffs]);
+  Object.keys(g).sort().forEach(function(k){ GROUPS.push(["👥 " + k, g[k]]); });
+  box.innerHTML = GROUPS.map(function(G) {
+    const k = G[0], arr = G[1];
+    return '<div class="ugroup">▸ ' + k + '（' + arr.length + ' 人）</div>' +
+      arr.map(function(u) {
+        let tags = "";
+        if (u.waiting) tags += '<span class="utag w">待取 ' + u.waiting + '</span>';
+        if (u.onway)   tags += '<span class="utag o">在途 ' + u.onway + '</span>';
+        if (u.picked)  tags += '<span class="utag d">已取 ' + u.picked + '</span>';
+        const off = (u.active === 0) ? '<span class="utag" style="color:#f5222d">已停用</span>' : "";
+        return '<div class="urow"><div><span class="un">' + (u.name || "?") + '</span>' +
+          '<span class="up">' + (u.phone || "无手机") + (u.note ? (" · " + u.note) : "") + '</span></div>' +
+          '<div class="ub">' + off + tags + '<span class="utag">共 ' + (u.total||0) + '</span>' +
+          '<button class="uact" onclick="userDetail(\'' + u.user_id + '\')">👁 详情</button>' +
+          '<button class="uact" onclick="viewUserPkg(\'' + u.user_id + '\')">📦 看包裹</button>' +
+          '<button class="uact" onclick="userSetPwd(\'' + u.user_id + '\',\'' + (u.name||"") + '\')">🔑 设密码</button>' +
+          '<button class="uact" onclick="userEdit(\'' + u.user_id + '\')">改</button>' +
+          '<button class="uact del" onclick="userDel(\'' + u.user_id + '\',\'' + (u.name||"") + '\')">删</button>' +
+          '</div></div>';
+      }).join("");
+  }).join("");
+}
+
+// ★ 添加 / 修改用户
+function userAdd() {
+  const name = prompt("姓名（必填）："); if (!name) return;
+  const phone = prompt("手机号（必填，登录用）："); if (!phone) return;
+  const building = prompt("楼栋（如 3号楼，可留空）：") || "";
+  const note = prompt("备注（宿舍号等，可留空）：") || "";
+  fetch(API + "/api/users", { method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({name:name, phone:phone, building:building, note:note}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ alert(j.ok ? ("✓ 已添加 " + name) : ("✗ " + j.detail)); loadUsers(); });
+}
+
+function userEdit(uid) {
+  const u = _users.filter(function(x){ return x.user_id === uid; })[0];
+  if (!u) return;
+  const name = prompt("姓名：", u.name || ""); if (name === null) return;
+  const phone = prompt("手机号：", u.phone || ""); if (phone === null) return;
+  const building = prompt("楼栋：", u.building || ""); if (building === null) return;
+  const note = prompt("备注：", u.note || ""); if (note === null) return;
+  const active = confirm("当前状态：" + (u.active === 0 ? "已停用" : "正常") + "\n点【确定】=正常，【取消】=停用");
+  fetch(API + "/api/users/" + uid, { method: "PUT", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({name:name, phone:phone, building:building, note:note, active: active ? 1 : 0}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ alert(j.ok ? "✓ 已保存" : ("✗ " + j.detail)); loadUsers(); });
+}
+
+function userDel(uid, nm) {
+  if (!confirm("确定删除用户「" + nm + "」？\n（只是删用户档案，他的包裹记录会保留）")) return;
+  fetch(API + "/api/users/" + uid, { method: "DELETE" })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ alert(j.ok ? "✓ 已删除" : "✗ 删除失败"); loadUsers(); });
+}
+
+// ★ 从包裹里的收件人一键导入用户
+async function userImport() {
+  let j = {};
+  try { j = await (await fetch(API + "/api/users")).json(); } catch (e) { return; }
+  const sug = j.suggest || [];
+  if (!sug.length) { alert("没有可导入的人（需先有包裹，且包裹里带收件人姓名）"); return; }
+  if (!confirm("把包裹里发现的 " + sug.length + " 位收件人导入用户表？\n" +
+               sug.map(function(s){ return s.name + " " + (s.phone || ""); }).join("\n"))) return;
+  let ok = 0, fail = 0;
+  for (const s of sug) {
+    try {
+      const r = await (await fetch(API + "/api/users", { method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name: s.name, phone: s.phone || ("1" + Date.now() % 10000000000)}) })).json();
+      r.ok ? ok++ : fail++;
+    } catch (e) { fail++; }
+  }
+  alert("导入完成：成功 " + ok + "，失败 " + fail);
+  loadUsers();
+}
+
+function fmtTs(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  const z = function(n){ return (n < 10 ? "0" : "") + n; };
+  return (d.getMonth() + 1) + "-" + z(d.getDate()) + " " + z(d.getHours()) + ":" + z(d.getMinutes());
+}
+
+// ==================== ★ 真实地图（Leaflet + 高德瓦片）====================
+let gmap = null, gmapReady = false, mapMode = "real";
+const G_CENTER = [34.3416, 108.9398];    // ★ 占位坐标（西安市附近）—— 请改成你所在校区的经纬度
+
+// ★★ 站点经纬度 —— 现在是【占位坐标】，到学校现场改这几个值即可
+const SITES_GEO = [
+  { n: "取货点1", lat: 34.3420, lon: 108.9390 },   // ★ 占位，请现场标定后替换
+  { n: "送达点1", lat: 34.3412, lon: 108.9405 },   // ★ 占位
+  { n: "取货点2", lat: 34.3425, lon: 108.9385 },   // ★ 占位
+];
+
+// ★★ ROS坐标→经纬度 的标定参数（到学校现场标定后填这里；不填就不画车）
+//    x0,y0=标定点的ROS坐标  lat0,lon0=同一点的经纬度  rot=旋转角(弧度)  scale=米/ROS单位
+// ★ 默认标定：ROS 原点(0,0) ↔ 校园中心；到现场用"点地图读经纬度"精确校正即可
+//    x0,y0=标定点的ROS坐标  lat0,lon0=同一点的经纬度  rot=旋转角(弧度)  scale=米/ROS单位
+let GEO_CAL = { x0: 0.0, y0: 0.0, lat0: 34.3416, lon0: 108.9398, rot: 0.0, scale: 1.0 };
+
+function rosToLatLng(x, y) {
+  if (!GEO_CAL) return null;
+  const c = GEO_CAL;
+  const dx = (x - c.x0) * (c.scale || 1), dy = (y - c.y0) * (c.scale || 1);
+  const ca = Math.cos(c.rot || 0), sa = Math.sin(c.rot || 0);
+  const east  =  dx * ca + dy * sa;
+  const north = -dx * sa + dy * ca;
+  return [ c.lat0 + north / 110540.0,
+           c.lon0 + east / (111320.0 * Math.cos(c.lat0 * Math.PI / 180)) ];
+}
+
+// ★★★ 中键（按住滚轮）拖动 = 旋转地图（2026-10-09）
+//   类似 RViz / SLAM：左键平移、滚轮缩放、中键旋转
+function enableMiddleRotate(map) {
+  if (!map || map.__midRot) return;
+  map.__midRot = true;
+  const el = map.getContainer();
+  let on = false, startX = 0, startBearing = 0;
+  const deg = function () { return (map.getBearing ? map.getBearing() : 0); };
+
+  // ★ 用捕获阶段拦下中键，避免 Leaflet 自带的拖拽也去平移（中键在 Leaflet 里默认可拖）
+  el.addEventListener("mousedown", function (e) {
+    if (e.button !== 1) return;              // 只认中键（滚轮按下去）
+    e.preventDefault();
+    e.stopPropagation();
+    on = true;
+    startX = e.clientX;
+    startBearing = deg();
+    el.style.cursor = "grabbing";
+  }, true);
+
+  window.addEventListener("mousemove", function (e) {
+    if (!on) return;
+    e.preventDefault();
+    if (map.setBearing) map.setBearing(startBearing - (e.clientX - startX) * 0.35);
+  }, true);
+
+  window.addEventListener("mouseup", function (e) {
+    if (!on) return;
+    on = false;
+    el.style.cursor = "";
+    if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+
+  // 防止浏览器把中键当成"自动滚动"
+  el.addEventListener("auxclick", function (e) { if (e.button === 1) e.preventDefault(); });
+  el.addEventListener("contextmenu", function (e) { e.preventDefault(); }, true);
+}
+
+// ★ 创建地图时的公共选项：开启旋转（左键平移 / 滚轮缩放 / 中键旋转）
+const ROT_OPTS = {
+  rotate: true,              // 允许旋转
+  rotateControl: true,       // 显示"回正北"小控件
+  touchRotate: true,         // 触屏两指旋转
+  shiftKeyRotate: true,      // Shift + 拖动也能旋转
+  bearing: 0
+};
+
+function initGMap() {
+  if (gmap) return;
+  const el = document.getElementById("gmap");
+  if (!el || !el.clientWidth) { setTimeout(initGMap, 300); return; }
+  gmap = L.map(el, Object.assign({ center: G_CENTER, zoom: 17, zoomControl: true }, ROT_OPTS));
+  enableMiddleRotate(gmap);        // ★ 按住滚轮 → 旋转地图
+  L.tileLayer("https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}",
+    { subdomains: "1234", maxZoom: 19, minZoom: 3, attribution: "© 高德地图" }).addTo(gmap);
+  SITES_GEO.forEach(function(sp){
+    L.marker([sp.lat, sp.lon]).addTo(gmap).bindPopup("<b>" + sp.n + "</b>");
+  });
+
+  // ★ 点地图任意位置 → 读出经纬度（现场标定站点用）；支持单个删除 / 撤销 / 清空
+  window._picks = [];
+  window._pickSeq = 0;
+  gmap.on("click", function(e){
+    if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest &&
+        e.originalEvent.target.closest(".leaflet-marker-icon")) return;   // 点标记本身不新增
+    addPick(e.latlng.lat.toFixed(6), e.latlng.lng.toFixed(6));
+  });
+  gmap.attributionControl.setPrefix("");
+  gmapReady = true;
+  updateGeoHint(0);
+}
+
+// ★ 标定点管理：增 / 删单个 / 撤销 / 清空
+function addPick(la, lo) {
+  const id = ++window._pickSeq;
+  const mk = L.marker([la, lo]).addTo(gmap)
+    .bindPopup('<b>标定点</b><br>lat: ' + la + '<br>lon: ' + lo +
+      '<br><a href="#" onclick="delPick(' + id + ');return false;" ' +
+      'style="color:#e05555;font-weight:700;">✕ 删除这个标记</a>')
+    .openPopup();
+  window._picks.push({ id: id, lat: la, lon: lo, marker: mk });
+  _renderPicks();
+}
+function delPick(id) {
+  const i = window._picks.findIndex(function(p){ return p.id === id; });
+  if (i < 0) return;
+  gmap.removeLayer(window._picks[i].marker);
+  window._picks.splice(i, 1);
+  _renderPicks();
+}
+function delLastPick() {
+  if (!window._picks.length) return;
+  const p = window._picks[window._picks.length - 1];
+  gmap.removeLayer(p.marker);
+  window._picks.pop();
+  _renderPicks();
+}
+function clearPicks() {
+  window._picks.forEach(function(p){ gmap.removeLayer(p.marker); });
+  window._picks = [];
+  _renderPicks();
+}
+function _renderPicks() {
+  const h = document.getElementById("geo-hint");
+  const t = document.getElementById("geo-tools");
+  if (!h) return;
+  if (!window._picks.length) {
+    if (t) t.style.display = "none";
+    updateGeoHint(0);
+    return;
+  }
+  if (t) t.style.display = "";
+  const txt = window._picks.map(function(p, i){
+    return '<span class="pk">' + (i+1) + '. ' + p.lat + ', ' + p.lon +
+           '<a href="#" onclick="delPick(' + p.id + ');return false;" title="删除">✕</a></span>';
+  }).join("");
+  h.innerHTML = '★ 已标 ' + window._picks.length + ' 个点：<br>' + txt +
+    '<div style="opacity:.62;margin-top:3px">点标记弹窗里的 ✕、或列表里的 ✕ 可删单个</div>';
+}
+
+function updateGeoHint(nDev) {
+  const h = document.getElementById("geo-hint"); if (!h) return;
+  if (window._picks && window._picks.length) return;   // ★ 有标定点时不覆盖列表
+  h.innerHTML = (GEO_CAL
+    ? ("小车位置已按标定参数显示（" + nDev + " 台）")
+    : "★ 底图 = 高德地图（已定位到默认坐标）。<b>点一下地图任意位置</b>即可读出该处经纬度 —— 用来标定站点/校准位置。")
+    + '<br>🖱️ 操作：<b>左键拖动</b>平移 · <b>滚轮</b>缩放 · <b>按住滚轮拖动</b>旋转（或 Shift+滚轮）';
+}
+
+function drawGMap(devices) {
+  if (!gmapReady) return;
+  if (!window._gcar) window._gcar = {};
+  const seen = {};
+  (devices || []).forEach(function(d){
+    // ★★★ 无人机用【GPS 经纬度】；小车用【ROS 世界坐标 → 换算经纬度】
+    let ll = null;
+    const isDrone = (d.role === "drone");
+    if (isDrone) {
+      if (d.lat !== null && d.lat !== undefined && d.lon !== null && d.lon !== undefined)
+        ll = [Number(d.lat), Number(d.lon)];
+    } else {
+      if (d.pos_x !== null && d.pos_x !== undefined) ll = rosToLatLng(d.pos_x, d.pos_y);
+    }
+    if (!ll) return;
+    seen[d.device_id] = 1;
+    const off = (d.status === "offline");
+    // ★ 分开标记：无人机 🚁 橙、小车 🚗 蓝
+    const ic = L.divIcon({
+      html: '<div style="font-size:30px;line-height:1;text-align:center;' +
+            (off ? 'filter:grayscale(1);opacity:.5;' : '') +
+            'text-shadow:0 0 5px #fff,0 0 2px #fff">' + (isDrone ? "🚁" : "🚗") + '</div>',
+      className: "", iconSize: [34, 34], iconAnchor: [17, 17] });
+    let name = (d.name || "").trim() ||
+               (isDrone ? "无人机" : "小车") + " " + d.device_id;
+    let pop = "<b>" + name + "</b>（" + d.device_id + "）<br>" +
+              (isDrone ? "无人机（人操作）" : "校园配送车") + "<br>" +
+              (off ? "🔴 离线" : "🟢 在线") +
+              (d.battery != null ? "<br>🔋 " + Number(d.battery).toFixed(0) + "%" : "") +
+              (isDrone && d.alt ? "<br>高度 " + Number(d.alt).toFixed(1) + " m" : "");
+    if (!window._gcar[d.device_id]) {
+      window._gcar[d.device_id] = L.marker(ll, { icon: ic, title: name })
+        .addTo(gmap).bindPopup(pop);
+    } else {
+      window._gcar[d.device_id].setLatLng(ll).setPopupContent(pop);
+    }
+  });
+  Object.keys(window._gcar).forEach(function(k){
+    if (!seen[k]) { gmap.removeLayer(window._gcar[k]); delete window._gcar[k]; }
+  });
+  updateGeoHint(Object.keys(seen).length);
+}
+
+// ★★★ 轨迹线（走过的路径）：小车用世界坐标换算，无人机用 GPS
+let _trackTimer = null, _tracks = {};
+async function drawTracks(){
+  if (!gmapReady) return;
+  let devs = [];
+  try{
+    const r = await (await fetch(API+"/api/devices_full")).json();
+    devs = r.devices || r || [];
+  }catch(e){ return; }
+  for (const d of devs){
+    if (d.status === "offline") continue;
+    let pts = [];
+    try{
+      const t = await (await fetch(API+"/api/track/"+encodeURIComponent(d.device_id)+"?limit=600")).json();
+      const raw = t.points || [];
+      pts = raw.map(function(p){
+        if (d.role === "drone") {
+          return (p.lat != null && p.lon != null) ? [Number(p.lat), Number(p.lon)] : null;
+        }
+        return (p.x != null) ? rosToLatLng(p.x, p.y) : null;
+      }).filter(Boolean);
+    }catch(e){ continue; }
+    if (pts.length < 2) continue;
+    const color = (d.role === "drone") ? "#f59e0b" : "#3b82f6";
+    if (_tracks[d.device_id]) {
+      _tracks[d.device_id].setLatLngs(pts);
+    } else {
+      _tracks[d.device_id] = L.polyline(pts, { color: color, weight: 3,
+        opacity: .65, dashArray: (d.role === "drone") ? "6,6" : null }).addTo(gmap);
+    }
+  }
+}
+function startTrackLoop(){
+  if (_trackTimer) return;
+  _trackTimer = setInterval(drawTracks, 5000);   // 每 5 秒刷一次轨迹
+  drawTracks();
+}
+
+function switchMap(mode) {
+  mapMode = mode;
+  document.getElementById("mapbox-real").style.display = (mode === "real") ? "" : "none";
+  document.getElementById("mapbox-slam").style.display = (mode === "slam") ? "" : "none";
+  document.getElementById("tab-real").className = "mtab" + (mode === "real" ? " on" : "");
+  document.getElementById("tab-slam").className = "mtab" + (mode === "slam" ? " on" : "");
+  if (mode === "real") { setTimeout(function(){ initGMap(); if (gmap) { gmap.invalidateSize(); startTrackLoop(); } }, 60); }
+  else { if (!MAP) loadMap(); else setTimeout(fitMap, 60); }
+}
+
+// ==================== ★ SLAM 图 ====================
+let MAP = null;                 // {resolution, origin, width, height, image_url}
+
+async function loadMap(){
+  try{
+    const j = await (await fetch(API + "/api/map")).json();
+    if(!j.ok){
+      document.getElementById("mapbox-slam").innerHTML =
+        '<div class="empty">' + (j.detail || "暂无地图") + '</div>';
+      return;
+    }
+    MAP = j;
+    document.getElementById("c-map").textContent =
+      (j.width && j.height) ? (j.width + "×" + j.height + " @" + j.resolution + "m/px") : "";
+    document.getElementById("mapbox-slam").innerHTML =
+      '<div class="mapwrap" id="mapwrap">' +
+        '<img id="mapimg" src="' + API + j.image_url + '">' +
+        '<div id="mapoverlay"></div>' +
+      '</div>';
+    const img = document.getElementById("mapimg");
+    if (img) img.onload = fitMap;
+    img.onerror = function(){
+      document.getElementById("mapbox-slam").innerHTML =
+        '<div class="empty">地图图片加载失败（服务器可能没装 Pillow，或没上传 map.pgm）</div>';
+    };
+  }catch(e){ /* 静默，下次再试 */ }
+}
+
+function fitMap(){
+  const img = document.getElementById("mapimg");
+  const ov  = document.getElementById("mapoverlay");
+  if(!img || !ov) return;
+  ov.style.left   = img.offsetLeft + "px";
+  ov.style.top    = img.offsetTop + "px";
+  ov.style.width  = img.clientWidth + "px";
+  ov.style.height = img.clientHeight + "px";
+}
+
+// ★ 世界坐标(米) → 覆盖层里的百分比
+//    px = (x - origin_x) / resolution
+//    py = 图高 - (y - origin_y) / resolution      ← 图像 y 轴朝下，必须翻转
+function worldToPct(x, y){
+  if(!MAP || !MAP.width || !MAP.height) return null;
+  const res = MAP.resolution, ox = MAP.origin[0], oy = MAP.origin[1];
+  const px = (x - ox) / res;
+  const py = MAP.height - (y - oy) / res;
+  return [ px / MAP.width * 100, py / MAP.height * 100 ];
+}
+
+function drawMap(devices){
+  if(!MAP) return;
+  const img = document.getElementById("mapimg");
+  const ov  = document.getElementById("mapoverlay");
+  if(!ov) return;
+  if(img && img.complete && img.clientWidth) fitMap();
+
+  let html = "";
+  // 站点参考点（取货点/送达点）
+  // ★★★ 2026-10-09 新实验室（图 lab_20261009）实测标定 —— 必须和小车端 SITES 同一次改完
+const SITE_PTS = [ {n:"取货点1", x:1.3498, y:0.2309, cls:"up"},
+                   {n:"送达点1", x:2.0260, y:-1.7208, cls:"down"} ];
+  SITE_PTS.forEach(function(sp){
+    const pct = worldToPct(sp.x, sp.y);
+    if(pct) html += '<div class="mark site '+(sp.cls||"")+'" style="left:'+pct[0]+'%;top:'+pct[1]+'%">'+
+                    '📍<span class="lbl">'+sp.n+'</span></div>';
+  });
+  // 车 / 无人机（按实时位置画，带朝向）
+  (devices||[]).forEach(function(d){
+    if(d.pos_x === null || d.pos_x === undefined) return;
+    const pct = worldToPct(d.pos_x, d.pos_y);
+    if(!pct) return;
+    const deg  = (d.pos_yaw || 0) * 180 / Math.PI;
+    const icon = d.role === "car" ? "🚗" : "🚁";
+    // 图标按朝向旋转；名字标签单独一层（不跟着转，否则字会倒）
+    html += '<div class="mark car" style="left:'+pct[0]+'%;top:'+pct[1]+'%;'+
+            'transform:translate(-50%,-50%)">'+
+              '<span style="display:inline-block;transform:rotate('+deg+'deg)">'+icon+'</span>'+
+              '<span class="lbl">'+d.device_id+'</span>'+
+            '</div>';
+  });
+  ov.innerHTML = html;
+}
+
+// ==================== ★★ 货架 / 货物详情 弹层 ====================
+function openModal(html){
+  document.getElementById("mdBody").innerHTML = html;
+  document.getElementById("mdMask").classList.add("on");
+}
+function closeModal(){
+  document.getElementById("mdMask").classList.remove("on");
+}
+document.addEventListener("keydown", function(e){ if(e.key==="Escape") closeModal(); });
+
+const ST_TXT = {CREATED:"已揽收", ON_DRONE:"无人机运输中", AT_GATE:"已到校门口",
+                LOADED:"已装车", DELIVERING:"配送中", PLACED:"已入柜待取",
+                PICKED:"已取件"};
+
+function esc(v){ return String(v==null?"":v).replace(/[&<>"]/g, function(c){
+  return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]; }); }
+
+// ★ 点货架 → 显示该货架的货物
+async function openSlot(slotId){
+  openModal('<h3>🗄️ 货架 ' + esc(slotId) + '</h3><div class="empty">加载中…</div>');
+  let r = {};
+  try{ r = await (await fetch(API+"/api/slot/"+encodeURIComponent(slotId)+"/parcels")).json(); }
+  catch(e){ r = {}; }
+  const ps = r.parcels || [];
+  let h = '<h3>🗄️ 货架 ' + esc(slotId) + ' · ' + ps.length + ' 件货</h3>';
+  h += '<div class="empty" style="text-align:left;color:#64748b">点货物看客户信息</div>';
+  if(!ps.length){
+    h += '<div class="empty">这个货架是空的</div>';
+  } else {
+    h += ps.map(function(p){
+      return '<div class="pcard" onclick="openParcel(\''+esc(p.parcel_id)+'\')">' +
+        '<div class="prow"><span class="ptitle">📦 ' + esc(p.parcel_id) +
+        ' · ' + esc(p.owner||"未知收件人") + '</span>' +
+        '<button class="pdel" onclick="event.stopPropagation();delParcel(\''+esc(p.parcel_id)+'\',\''+esc(slotId)+'\')">🗑 删除</button></div>' +
+        '<div class="pmeta">' +
+        (p.marker_id != null ? ('★ AR码 <b>' + esc(p.marker_id) + '</b> 号 · ') : '') +
+        '运单 ' + esc(p.tracking_no||"—") + ' · 取件码 <b>' + esc(p.pick_code||"—") +
+        '</b> · ' + esc(ST_TXT[p.status]||p.status||"—") + '</div></div>';
+    }).join("");
+  }
+  h += '<button class="bigbtn" onclick="addParcel(\''+esc(slotId)+'\')">＋ 往货架 ' + esc(slotId) + ' 添加货物</button>';
+  openModal(h);
+}
+
+// ★ 点某件货 → 客户信息 + 时间线
+async function openParcel(pid){
+  openModal('<h3>📦 ' + esc(pid) + '</h3><div class="empty">加载中…</div>');
+  let r = {};
+  try{ r = await (await fetch(API+"/api/parcel/"+encodeURIComponent(pid))).json(); }catch(e){}
+  const tl = r.timeline || [];
+  const p = r.parcel || r;
+  if(!p || !p.parcel_id){ openModal('<h3>❌ 没找到 ' + esc(pid) + '</h3>'); return; }
+  function T(t){ if(!t) return "—";
+    const d = new Date(t*1000);
+    return d.getMonth()+1+"-"+String(d.getDate()).padStart(2,"0")+" "+
+           String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+  let h = '<h3>📦 ' + esc(p.parcel_id) + ' · ' + esc(p.status_cn || ST_TXT[p.status] || p.status || "—") + '</h3>';
+  h += '<div class="dl">';
+  h += '<div class="k">收件人</div><div class="v"><b>' + esc(p.owner||"—") + '</b></div>';
+  h += '<div class="k">手机号</div><div class="v">' + esc(p.phone||"—") + '</div>';
+  h += '<div class="k">取件码</div><div class="v"><b style="color:#f97316;font-size:16px">' + esc(p.pick_code||"—") + '</b></div>';
+  h += '<div class="k">快递单号</div><div class="v">' + esc(p.tracking_no||"—") + '</div>';
+  h += '<div class="k">订单号</div><div class="v">' + esc(p.order_no||"—") + '</div>';
+  h += '<div class="k">目的地</div><div class="v">' + esc(p.dst||"—") + '</div>';
+  h += '<div class="k">货架格</div><div class="v">' + esc(p.shelf_no||"—") + '</div>';
+  h += '<div class="k">AR码序号</div><div class="v">' +
+       (p.marker_id != null ? ('<b style="color:#0ea5e9;font-size:16px">' +
+          esc(p.marker_id) + '</b> 号（贴在货物上，小车用摄像头识别）') : '—') + '</div>';
+  h += '<div class="k">承运</div><div class="v">' + esc(p.drone_id||"—") + ' / ' + esc(p.car_id||"—") + '</div>';
+  h += '<div class="k">时间</div><div class="v">揽收 ' + T(p.created_at) + ' · 装载 ' + T(p.loaded_at) +
+       ' · 入柜 ' + T(p.placed_at) + ' · 取件 ' + T(p.picked_at) + '</div>';
+  h += '</div>';
+  if(tl.length){
+    h += '<h3 style="font-size:14px">🕒 流转时间线</h3>';
+    h += tl.map(function(e){
+      return '<div class="pmeta" style="padding:5px 0;border-bottom:1px dashed #e2e8f0">' +
+             '<b>' + T(e.ts) + '</b> · ' + esc(e.event_cn || evCn(e.event) || "") +
+             ' · ' + esc(e.actor||e.device||"") +
+             (e.detail ? ' · <span style="color:#94a3b8">'+esc(e.detail)+'</span>' : '') + '</div>';
+    }).join("");
+  }
+  h += '<button class="bigbtn" onclick="openSlot(\''+esc(p.shelf_no||"")+'\')">← 返回货架 ' + esc(p.shelf_no||"") + '</button>';
+  h += '<button class="bigbtn" style="border-color:#fca5a5;color:#dc2626" onclick="delParcel(\''+esc(pid)+'\',\''+esc(p.shelf_no||"")+'\')">🗑 删除这件货</button>';
+  openModal(h);
+}
+
+// ★ 往货架加货
+function addParcel(slotId){
+  slotId = slotId || "";
+  let h = '<h3>＋ 添加货物到货架 ' + esc(slotId) + '</h3>';
+  h += '<div style="font-size:12px;color:#94a3b8;margin-bottom:10px">填客户信息（就相当于"中转点工作人员揽收"）</div>';
+  h += '<div class="f2"><input class="finput" id="np-owner" placeholder="收件人姓名（张三）">';
+  h += '<input class="finput" id="np-phone" placeholder="手机号"></div>';
+  h += '<div class="f2"><input class="finput" id="np-track" placeholder="快递单号（选填）">';
+  h += '<input class="finput" id="np-order" placeholder="订单号（选填）"></div>';
+  h += '<div class="f2"><input class="finput" id="np-dst" placeholder="目的地（3号楼 / 图书馆）">';
+  h += '<input class="finput" id="np-shelf" placeholder="货架格（1A）" value="' + esc(slotId) + '"></div>';
+  h += '<div class="f2"><input class="finput" id="np-code" placeholder="取件码（留空自动生成）">';
+  h += '<select class="finput" id="np-mode"><option value="SHELF">送到货架（不等人取）</option><option value="STATION">送到驿站</option></select></div>';
+  h += '<button class="bigbtn" onclick="doAddParcel()">✅ 确认添加</button>';
+  openModal(h);
+}
+async function doAddParcel(){
+  const g = function(id){ const e = document.getElementById(id); return e ? e.value.trim() : ""; };
+  const body = { owner:g("np-owner"), phone:g("np-phone"), tracking_no:g("np-track"),
+                 order_no:g("np-order"), dst:g("np-dst"), shelf_no:g("np-shelf"),
+                 pick_code:g("np-code"), mode:g("np-mode") || "SHELF" };
+  if(!body.owner){ alert("收件人姓名必填"); return; }
+  if(!body.shelf_no){ alert("货架格必填（如 1A）"); return; }
+  let r = {};
+  try{ r = await (await fetch(API+"/api/parcel/add", {method:"POST",
+        headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})).json(); }
+  catch(e){ r = {}; }
+  if(r.ok){ await openSlot(body.shelf_no); load(); }
+  else{ alert("添加失败：" + (r.error||"未知错误")); }
+}
+
+// ★ 删除货物
+async function delParcel(pid, slotId){
+  if(!confirm("确认删除货物 " + pid + " ？")) return;
+  let r = {};
+  try{ r = await (await fetch(API+"/api/parcel/"+encodeURIComponent(pid)+"/delete",
+        {method:"POST"})).json(); }catch(e){ r = {}; }
+  if(r.ok){ if(slotId) await openSlot(slotId); load(); }
+  else{ alert("删除失败：" + (r.error||"未知错误")); }
+}
+
+// ★★★ 设备短名字（就写"1号小车"/"1号无人机"，不暴露 car-01 这种内部编号）
+function devLabel(d, kind){
+  const nm = ((d && d.name) || "").trim();
+  const id = (d && d.device_id) || "";
+  const m = id.match(/(\d+)/);
+  const n = m ? parseInt(m[1], 10) : 1;
+  const gen = n + "号" + (kind === "drone" ? "无人机" : "小车");
+  // ★ 没名字、或名字本身就是设备编号（nx-02 / car-01）→ 用生成的短名
+  if (!nm || nm === id || /^(car|nx|drone|robot|uav)[-_]?\d+$/i.test(nm)) return gen;
+  return nm;
+}
+
+// ★★★ 手动操作页的"小车"下拉（只列车，不列无人机）
+async function loadCarTargets(){
+  const sel = document.getElementById("o-target");
+  if (!sel) return;
+  let cars = [];
+  try{
+    const r = await (await fetch(API + "/api/devices_full")).json();
+    cars = (r.devices || []).filter(function(x){ return x.role === "car"; });
+  }catch(e){}
+  const ids = cars.map(function(x){ return x.device_id; });
+  if (!ids.length) ids.push("car-01");
+  const cur = sel.value;
+  sel.innerHTML = ids.map(function(k){
+    const d = cars.filter(function(x){ return x.device_id === k; })[0] || {};
+    const off = (d.online === false);
+    return '<option value="' + esc(k) + '"' + (k === cur ? " selected" : "") + '>' +
+           esc(devLabel(d, "car")) + (off ? "（离线）" : "（在线）") + '</option>';
+  }).join("");
+  // ★★★ 离线保护：选中的小车不在线 → 禁用"发送指令"
+  const picked = cars.filter(function(x){ return x.device_id === sel.value; })[0] || {};
+  const on = (picked.online !== false) && (picked.online !== undefined);
+  const btn = document.getElementById("o-send");
+  if (btn) {
+    btn.disabled = !on;
+    btn.style.opacity = on ? "1" : ".45";
+    btn.style.cursor = on ? "pointer" : "not-allowed";
+  }
+  const off = document.getElementById("o-offline");
+  if (off) {
+    if (!on) {
+      off.style.display = "";
+      off.innerHTML = "⚠️ <b>" + esc(devLabel(picked, "car")) + " 当前离线</b>，指令发不过去。<br>" +
+        "请先在小车上启动桥接节点：<code>python3 -u mqtt_bridge_node.py</code>";
+    } else {
+      off.style.display = "none";
+    }
+  }
+}
+
+// ==================== ★★★ 无人机端 ====================
+// ★ 切换选中的无人机
+function droneSelect(id){
+  _droneId = id;
+  try { localStorage.setItem("drone_pick", id); } catch(e){}
+  loadDronePage();
+}
+
+// ★ 登记一台新无人机（还没上报过的也能先建上，后面选它）
+async function droneAdd(){
+  const id = prompt("新无人机编号（如 nx-02）", "nx-02");
+  if(id === null) return;
+  const did = String(id).trim();
+  if(!did){ alert("编号不能为空"); return; }
+  const nm = prompt("给它起个名字（选填，如 无人机2号）", "") || "";
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/device/register", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({device_id: did, role:"drone", name: nm})})).json();
+  }catch(e){ r = {}; }
+  if(r.ok){
+    _droneId = did;
+    try { localStorage.setItem("drone_pick", did); } catch(e){}
+    toast("✅ 已登记 " + did);
+    loadDronePage();
+  } else { alert("登记失败：" + (r.detail || r.error || "未知")); }
+}
+
+// ★ 删除一台无人机（只从列表里移除；重新上报会再出现）
+async function droneDel(){
+  if(!_droneId){ return; }
+  if(!confirm("从列表里删除【" + _droneId + "】？\n（它下次上报会自动再出现）")) return;
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/device/remove", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({device_id: _droneId})})).json();
+  }catch(e){ r = {}; }
+  if(r.ok){
+    _droneId = null;
+    try { localStorage.removeItem("drone_pick"); } catch(e){}
+    toast("✅ 已从列表移除");
+    loadDronePage();
+  } else { alert("删除失败：" + (r.error || "未知")); }
+}
+
+let _droneDev = null;
+let _droneId  = null;                 // ★ 当前选中的无人机
+async function loadDronePage(){
+  const box = document.getElementById("dr-status");
+  const lb  = document.getElementById("dr-loads");
+  if(!box) return;
+
+  // ★★ 无人机列表 → 填"选择无人机"下拉（可多机）
+  let drones = [];
+  try{
+    const r = await (await fetch(API+"/api/drones")).json();
+    drones = r.drones || [];
+  }catch(e){ drones = []; }
+  const ids = drones.map(function(x){ return x.device_id; });
+  if(!_droneId || ids.indexOf(_droneId) < 0){
+    let saved = null;
+    try { saved = localStorage.getItem("drone_pick"); } catch(e){}
+    _droneId = (saved && ids.indexOf(saved) >= 0) ? saved : (ids[0] || "nx-01");
+  }
+  const sel = document.getElementById("dr-pick");
+  if(sel){
+    sel.innerHTML = ids.map(function(k){
+      const dd = drones.filter(function(x){ return x.device_id === k; })[0] || {};
+      // ★★ 在线/离线以后端算好的 dd.online 为准（>60 秒没上报 = 离线）
+      const off = (dd.online === false) || (dd.online === undefined);
+      const ago = dd.age_sec;
+      const tag = off ? "（离线）" : "（在线）";
+      return '<option value="' + esc(k) + '"' + (k === _droneId ? " selected" : "") + '>' +
+             esc(devLabel(dd, "drone")) + tag + '</option>';
+    }).join("");
+  }
+  _droneDev = drones.filter(function(x){ return x.device_id === _droneId; })[0] || null;
+
+  let parcels = [];
+  try{
+    const r = await (await fetch(API+"/api/parcels")).json();
+    parcels = r.parcels || [];
+  }catch(e){}
+  const d = _droneDev;
+  if(!d){
+    box.innerHTML = '<div class="empty">这台无人机还没上报过（' + esc(_droneId || "") +
+                    '）—— 等它上报一次就会出现状态</div>';
+  } else {
+    const on  = (d.online !== false) && (d.status !== "offline");
+    const ago = d.last_seen ? Math.max(0, nowSec - d.last_seen) : null;
+    let h = '<div class="dl" style="display:grid;grid-template-columns:88px 1fr;gap:8px 12px;font-size:13px">';
+    h += '<div class="k" style="color:#94a3b8">设备</div><div><b>' + esc(devLabel(d, "drone")) +
+         '</b> <span style="color:#94a3b8;font-size:11px">' + esc(d.device_id) + '</span> ' +
+         (on ? '<span style="color:#16a34a">● 在线</span>' : '<span style="color:#94a3b8">○ 离线</span>') + '</div>';
+    h += '<div class="k" style="color:#94a3b8">状态</div><div>' + esc(d.status || "idle") +
+         (ago !== null ? '（' + ago + ' 秒前上报）' : '') + '</div>';
+    h += '<div class="k" style="color:#94a3b8">GPS</div><div>' +
+         (d.lat != null ? (Number(d.lat).toFixed(6) + ', ' + Number(d.lon).toFixed(6) +
+          (d.alt ? ' 高 ' + Number(d.alt).toFixed(1) + 'm' : '')) : '—（还没收到 GPS）') + '</div>';
+    h += '<div class="k" style="color:#94a3b8">电量</div><div>' +
+         (d.battery != null ? (Number(d.battery).toFixed(0) + '%') : '—') + '</div>';
+    h += '</div>';
+    box.innerHTML = h;
+  }
+  // ★★★ 离线保护：无人机不在线（机载程序没跑）→ 三个按钮禁用 + 说明原因
+  const _on = !!(d && d.online !== false && d.status !== "offline");
+  ["dr-b1", "dr-b2", "dr-b3"].forEach(function (id) {
+    const b = document.getElementById(id);
+    if (!b) return;
+    b.disabled = !_on;
+    b.style.opacity = _on ? "1" : ".45";
+    b.style.cursor = _on ? "pointer" : "not-allowed";
+    b.title = _on ? "" : "设备离线，不能操作";
+  });
+  const off = document.getElementById("dr-offline");
+  if (off) {
+    if (!_on) {
+      off.style.display = "";
+      off.innerHTML = "⚠️ <b>" + esc(devLabel(d || {device_id: _droneId}, "drone")) +
+        " 当前离线</b>，不能在网页操作。<br>" +
+        "在线 = 机载程序正在上报（最近 60 秒内有消息）。<br>" +
+        "请先在机载电脑上跑：<code>python3 device_client.py --role drone</code>";
+    } else {
+      off.style.display = "none";
+    }
+  }
+
+  // 机上载货：状态是 ON_DRONE / AT_GATE 的
+  // ★★★ 平台分配给你的库位（放货前看一眼就知道该放哪个格）
+  let alloc = {};
+  try{ alloc = await (await fetch(API+"/api/drone/alloc")).json(); }catch(e){ alloc = {}; }
+  const al = document.getElementById("dr-alloc");
+  if (al) {
+    const free = alloc.free || [], used = alloc.used || [];
+    al.innerHTML = "★ 平台分配：" + esc(alloc.hint || "—") +
+      "<br><span style=\"color:#64748b\">1 号位空着：" + (free.length ? free.join(" / ") : "（已满，等小车取走）") +
+      "　已占用：" + (used.length ? used.join(" / ") : "无") + "</span>";
+    const si = document.getElementById("dr-slot");
+    if (si && !si.value && free.length) si.placeholder = "库位（建议 " + free[0] + "）";
+  }
+
+  const loads = parcels.filter(function(p){
+    return ["ON_DRONE","AT_GATE"].indexOf(p.status) >= 0;
+  });
+  if(!lb) return;
+  lb.innerHTML = loads.length ? loads.map(function(p){
+    return '<div class="pcard" onclick="openParcel(\'' + esc(p.parcel_id) + '\')">' +
+      '<div class="ptitle">📦 ' + esc(p.parcel_id) + ' · ' + esc(p.owner || "—") + '</div>' +
+      '<div class="pmeta">运单 ' + esc(p.tracking_no || "—") + ' · 目的地 ' + esc(p.dst || "—") +
+      ' · ' + esc(p.status_cn || p.status || "") + '</div></div>';
+  }).join("") : '<div class="empty">机上没有货（点上面【已取货】后这里会显示）</div>';
+}
+
+async function droneAct(action){
+  const g = function(id){ const e = document.getElementById(id); return e ? e.value.trim() : ""; };
+  // ★★★ 放货前必须填收件人（否则包裹无主 → 收件人查不到自己的货）
+  if (action === "dropped") {
+    if (!g("dr-owner")) { toast("⚠️ 请先填【收件人姓名】—— 不然这件货没有主人"); return; }
+    if (!g("dr-phone")) { toast("⚠️ 请先填【收件人手机号】—— 不然收件人查不到自己的包裹"); return; }
+  }
+  const btnId = {takeoff:"dr-b1", loaded:"dr-b2", dropped:"dr-b3"}[action];
+  const b = btnId ? document.getElementById(btnId) : null;
+  const oldTxt = b ? b.innerHTML : "";
+  if(b){ b.disabled = true; b.innerHTML = "⏳ 发送中…"; }
+  const body = { action: action, device: _droneId || (_droneDev && _droneDev.device_id) || "nx-01",
+                 site: g("dr-site") || "1", slot: g("dr-slot"),
+                 tracking_no: g("dr-track"), count: 1,
+                 owner: g("dr-owner"), phone: g("dr-phone"), dst: g("dr-dst"),
+                 marker_id: g("dr-marker") };        // ★★ AR码序号（货物身份证）
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/drone/action", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})).json();
+  }catch(e){ r = {}; }
+  if(b){ b.disabled = false; b.innerHTML = oldTxt; }
+  const CN = {takeoff:"无人机已起飞", loaded:"已记录取货", dropped:"已放货 → 平台开始派车"};
+  toast(r.ok ? ("✅ " + CN[action]) : ("⚠️ " + (r.detail || "失败")));
+  setTimeout(loadDronePage, 800);
+  load();
+}
+
+// ==================== ★★ 校内配送点货柜（小车放货 → 收件人来取）====================
+async function loadDstSlots(){
+  const box = document.getElementById("dstbox");
+  const cnt = document.getElementById("c-dst");
+  if(!box) return;
+  let j = {};
+  try{ j = await (await fetch(API+"/api/dst_slots")).json(); }catch(e){ j = {}; }
+  const groups = j.groups || {};
+  const names = Object.keys(groups);
+  if(cnt) cnt.textContent = (j.count || 0) + " 格 · " + names.length + " 个点";
+  if(!names.length){
+    box.innerHTML = '<div class="empty">还没有配送点（点右上角【＋ 新增配送点】）</div>';
+    return;
+  }
+  let h = "";
+  names.forEach(function(nm){
+    const cells = groups[nm] || [];
+    const occN = cells.filter(function(c){ return c.occupied; }).length;
+    h += '<div style="margin-bottom:16px">';
+    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+         '<b style="font-size:14px">🏢 ' + esc(nm) + '</b>' +
+         '<span style="font-size:12px;color:#64748b">' + cells.length + ' 格 · 在库 ' + occN + ' 件</span>' +
+         '<span style="flex:1"></span>' +
+         '<button style="background:#fee2e2;color:#dc2626;border:0;border-radius:6px;' +
+         'padding:3px 10px;cursor:pointer;font-size:12px" ' +
+         'onclick="delDstPoint(\'' + esc(nm) + '\')">🗑 删除这个点</button></div>';
+    h += '<div class="racks">' + cells.map(function(x){
+      const occ = !!x.occupied;
+      return '<div class="rack ' + (occ?"occ":"free") + '" style="cursor:pointer" ' +
+        'onclick="openSlot(\'' + esc(x.slot_id) + '\')" title="点看这格的货">' +
+        '<div class="rn">' + esc(String(x.slot_id).split("-").pop()) + '</div>' +
+        '<div class="ri">' + (occ?"📦":"▫️") + '</div>' +
+        '<div class="rd">' + (occ ? ("在库 " + (x.count||1) + " 件") : "空") + '</div></div>';
+    }).join("") + '</div></div>';
+  });
+  box.innerHTML = h;
+}
+
+async function addDstPoint(){
+  const nm = prompt("新增配送点，输入名称（如：5号公寓楼下）", "");
+  if(nm === null) return;
+  const t = String(nm).trim();
+  if(!t){ alert("名称不能为空"); return; }
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/dst_point/add", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:t, cells:3})})).json();
+  }catch(e){ r = {}; }
+  if(r.ok){ toast("✅ 已新增 " + t); loadDstSlots(); }
+  else{ alert("失败：" + (r.error||"未知")); }
+}
+
+async function delDstPoint(nm){
+  if(!confirm("删除配送点【" + nm + "】及其所有格？（格里有货时会被拒绝）")) return;
+  let r = {};
+  try{
+    r = await (await fetch(API+"/api/dst_point/remove", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:nm})})).json();
+  }catch(e){ r = {}; }
+  if(r.ok){ toast("✅ 已删除 " + nm); loadDstSlots(); }
+  else{ alert("删除失败：" + (r.error||"未知")); }
+}
+
+// ★★★ 货架页两个 tab：中转货架 / 配送点货柜
+function rackTab(kind){
+  const t = document.getElementById("rack-transit");
+  const d = document.getElementById("rack-dst");
+  const bt = document.getElementById("rt-transit");
+  const bd = document.getElementById("rt-dst");
+  if(!t || !d) return;
+  t.style.display = (kind === "transit") ? "" : "none";
+  d.style.display = (kind === "dst")     ? "" : "none";
+  if(bt) bt.className = "mtab" + (kind === "transit" ? " on" : "");
+  if(bd) bd.className = "mtab" + (kind === "dst" ? " on" : "");
+  try { localStorage.setItem("rack_tab", kind); } catch(e) {}
+  if (kind === "dst") loadDstSlots();
+}
+
 function render(d){
   const s=d.stats||{}, devs=d.devices||[], slots=d.slots||[], tasks=d.tasks||[];
   const kw=(document.getElementById("q").value||"").trim().toUpperCase();
 
-  document.getElementById("m-dev").textContent   = devs.length;
+  document.getElementById("m-dev").textContent   = devs.filter(function(x){return x.status!=="offline";}).length;
   document.getElementById("m-queue").textContent = d.queue_size ?? 0;
   document.getElementById("m-total").textContent = s.tasks_total ?? 0;
   document.getElementById("m-done").textContent  = s.tasks_done ?? 0;
   document.getElementById("m-avg").textContent   = (s.avg_duration_sec==null ? "—" : s.avg_duration_sec+" 秒");
 
-  // 货架
-  document.getElementById("c-rack").textContent = slots.length + " 个库位";
-  document.getElementById("racks").innerHTML = slots.length ? slots.map(x=>{
+  // 货架（★ 只显示【中转货架】；配送点货柜在另一个 tab，由 loadDstSlots 渲染）
+  const _rk = document.getElementById("racks");
+  if (!_rk) return;                       // 页面结构变了就安全退出，别让后面全挂掉
+  const trSlots = slots.filter(function(x){ return (x.kind || "transit") !== "dst"; });
+  _rk.innerHTML = (trSlots.length ? trSlots.map(x=>{
     const occ = !!x.occupied;
-    return `<div class="rack ${occ?"occ":"free"}">
+    return `<div class="rack ${occ?"occ":"free"}" style="cursor:pointer" onclick="openSlot('${x.slot_id}')" title="点看这个货架的货物">
       <div class="rn">${x.slot_id}</div>
       <div class="ri">${occ?"📦":"▫️"}</div>
       <div class="rd">${occ?("在库 "+(x.count||1)+" 件"):"空"}</div>
     </div>`;
-  }).join("") : '<div class="empty">暂无库位数据</div>';
+  }).join("") : '<div class="empty">暂无库位数据</div>')
+    + `<div class="rack free" style="border-style:dashed;cursor:pointer;opacity:.75" onclick="addParcel('')" title="手动添加一件货">
+         <div class="rn">＋</div><div class="ri">➕</div><div class="rd">添加货物</div>
+       </div>`;
 
   // 设备
-  document.getElementById("c-dev").textContent = devs.length + " 台";
-  document.getElementById("devs").innerHTML = devs.length ? devs.map(x=>{
-    const st = x.status==="idle" ? "idle" : (x.status==="busy" ? "busy" : "off");
-    const cn = x.status==="idle" ? "空闲" : (x.status==="busy" ? "忙碌中" : "离线");
-    return `<div class="dev">
-      <div><span class="dn">${x.device_id}</span><span class="dr">${x.role==="car"?"小车":"无人机"}</span></div>
-      <div style="font-size:12.5px"><span class="dot ${st}"></span>${cn}</div>
-    </div>`;
-  }).join("") : '<div class="empty">暂无设备上报</div>';
+  nowSec = Math.floor(Date.now() / 1000);
+  loadDevicesFull();   // ★ 设备信息（含电量）—— 数据源 /api/devices_full
+  loadUsers();         // ★ 用户管理
 
-  // 包裹卡片
-  const list = kw ? tasks.filter(t=>String(t.task_id).toUpperCase().includes(kw)||String(t.slot||"").toUpperCase().includes(kw)) : tasks;
-  document.getElementById("c-parcel").textContent = list.length + " 个";
-  document.getElementById("parcels").innerHTML = list.length ? list.map(t=>{
-    const el = (t.delivered_at && t.created_at) ? (t.delivered_at-t.created_at)+" 秒" : dur(t.created_at);
-    return `<div class="parcel">
-      <div class="ph"><span class="pid">📦 ${t.task_id}</span>
-        <span class="st ${t.status}">${CN[t.status]||t.status}</span></div>
-      <div class="pb">
-        <div class="code">取件 ${t.slot||"?"}-${String(t.task_id).slice(-4)}</div>
-        <div class="meta">
-          <span>站点 <b>${t.site|| "-"}</b></span>
-          <span>库位 <b>${t.slot|| "-"}</b></span>
-          <span>${t.count||1} 件</span>
-          <span>车 <b>${t.car_id|| "待分配"}</b></span>
-          <span>用时 <b>${el}</b></span>
-        </div>
-      </div></div>`;
-  }).join("") : '<div class="empty">暂无包裹记录</div>';
+  // ★ 地图上的车 / 站点
+  drawMap(devs);
+  drawGMap(devs);
+  loadParcels();   // ★ 包裹列表/轨迹
+
+  // ★ 原来的「包裹列表」卡已删除 —— 现在统一用上面的「📦 包裹追踪」（parcels 表）
+  //   顶部搜索框改为筛选包裹（见 loadParcels）
 }
 
+// ★★★ 事件名 → 中文（看不懂的英文事件名都在这翻译）
+const EVENT_CN = {
+  // —— 无人机 ——
+  drone_takeoff:["🛫","无人机起飞"], takeoff:["🛫","无人机起飞"],
+  drone_loaded:["📦","已取货（挂载）"], loaded:["📦","已取货（挂载）"],
+  drop_done:["🏫","已放货到校门口"], depart:["🛫","无人机离站"],
+  ask_slot:["❓","问库位"], use_slot:["🎯","平台分配库位"],
+  drone_arrive:["🛬","无人机到达"],
+  // —— 小车 ——
+  goto_pick:["🚗","去取货点"], arrived:["📍","到达取货点"],
+  wait:["⏳","原地等待"], pick:["🦾","开始抓取"],
+  car_load:["📥","货物已装车"], pick_done:["✅","取货完成"],
+  car_depart:["🚚","出发配送"], dst_arrive:["🏁","到达送达点"],
+  shelf_place:["🏬","已放入货柜"], delivered:["🎉","送达完成"],
+  go_home:["🏠","返回起始点"], back_home:["🏠","已回到起点"],
+  idle:["💤","空闲待命"], busy:["⚙️","忙碌"],
+  // —— 包裹 ——
+  parcel_in:["📦","包裹入库"], picked_up:["🫱","收件人已取件"],
+  parcel_add:["➕","手动添加包裹"], parcel_del:["🗑","删除包裹"],
+  // —— 噪音（默认被过滤）——
+  heartbeat:["💓","心跳"], position:["📡","位置上报"],
+  gps:["🛰️","GPS位置"], battery:["🔋","电量上报"], selftest:["🧪","自检"],
+  exception:["⚠️","设备异常"],
+  // —— 人的操作 ——
+  cmd_goto_pick:["🎮","人工派车取货"], cmd_goto_deliver:["🎮","人工派车送达"],
+  cmd_ask_slot:["🎮","人工问库位"], cmd_start:["🎮","人工唤醒设备"],
+  cmd_go_home:["🎮","人工要求回起点"],
+};
+function evName(k){
+  const v = EVENT_CN[k];
+  return v ? (v[0] + " " + v[1]) : ("• " + (k || "未知"));
+}
+// ★★ 只取中文（给"运输轨迹"用；后端没给中文时在这里兜底翻译）
+function evCn(k){
+  if (!k) return "";
+  try { const v = EVENT_CN[k]; return v ? v[1] : k; } catch (e) { return k; }
+}
+EVENT_CN["set_dest"]    = ["📍", "修改送达地点"];
+EVENT_CN["goto_deliver"]= ["🚗", "前往送达点"];
+// ★ 把 payload(JSON) 翻译成一句人话
+function evDetail(e){
+  let p = {};
+  try { p = (typeof e.payload === "string") ? JSON.parse(e.payload) : (e.payload || {}); }
+  catch(err){ return String(e.payload || ""); }
+  const K = {task_id:"任务", slot:"库位", site:"站点", count:"件", dst:"送到",
+             shelf_no:"货架", tracking_no:"运单", owner:"收件人", phone:"手机",
+             reason:"原因", note:"", detail:"", by:"操作人", parcel_id:"包裹",
+             x:"x", y:"y", yaw:"朝向", lat:"纬度", lon:"经度", alt:"高",
+             percent:"电量", voltage:"电压", mode:"模式", status:"状态"};
+  const bits = [];
+  Object.keys(p).forEach(function(k){
+    if(["device","role","ts","event","from"].indexOf(k) >= 0) return;
+    if(p[k] === null || p[k] === undefined || p[k] === "") return;
+    let v = p[k];
+    if(typeof v === "object") v = JSON.stringify(v);
+    const lbl = (k in K) ? K[k] : k;
+    bits.push((lbl ? lbl + " " : "") + v);
+  });
+  return bits.join(" · ");
+}
+let _logBiz = true, _logBig = false;
+function logFilter(kind){
+  _logBiz = (kind === "biz");
+  const a = document.getElementById("lg-biz"), b = document.getElementById("lg-all");
+  if(a) a.className = "mtab" + (_logBiz ? " on" : "");
+  if(b) b.className = "mtab" + (_logBiz ? "" : " on");
+  loadEvents();
+}
+function logExpand(){
+  _logBig = !_logBig;
+  const el = document.getElementById("log");
+  if(el) el.className = "log" + (_logBig ? " big" : "");
+  const b = document.getElementById("lg-btn");
+  if(b) b.textContent = _logBig ? "⛶ 收起" : "⛶ 放大";
+}
 async function loadEvents(){
+  const box = document.getElementById("log");
+  if(!box) return;
+  const n = ((document.getElementById("lg-n") || {}).value) || "200";
+  const q = (((document.getElementById("lg-q") || {}).value) || "").trim();
+  let url = API + "/api/events?limit=" + n + "&only_biz=" + (_logBiz ? 1 : 0);
+  if(q) url += "&q=" + encodeURIComponent(q);
   try{
-    const list = await (await fetch(API+"/api/events?limit=40")).json();
-    if(!list.length) return;
-    document.getElementById("log").innerHTML = list.map(e=>
-      `<div><span class="t">${fmtTs(e.ts)}</span><span class="dv">${e.device}</span><span class="ev">${e.event}</span></div>`
-    ).join("");
+    const j = await (await fetch(url)).json();
+    const list = j.events || (Array.isArray(j) ? j : []);
+    const c = document.getElementById("c-log");
+    if(c) c.textContent = list.length + " 条" + (_logBiz ? "（已滤掉心跳/位置）" : "（含心跳/位置）");
+    if(!list.length){ box.innerHTML = '<div class="empty">没有事件</div>'; return; }
+    box.innerHTML = list.map(function(e){
+      const det = evDetail(e);
+      return '<div>' +
+        '<span class="t">' + fmtTs(e.ts) + '</span>' +
+        '<span class="dv">' + esc(e.device || "") + '</span>' +
+        '<span class="ev">' + esc(evName(e.event)) + '</span>' +
+        '<span class="ed">' + esc(det) + '</span>' +
+        '</div>';
+    }).join("");
   }catch(e){}
 }
 
@@ -323,8 +2964,56 @@ function toast(msg){
 }
 document.getElementById("q").addEventListener("input", load);
 
-load();
+loadMap();   // ★ 地图元数据（管理员/用户两个视图共用）
+// ==================== ★ 启动 ====================
+// ★★ 兜底：无论发生什么，1.2 秒后必须有一个界面可见（否则就是白屏）
+function __ensureVisible() {
+  try {
+    const L = document.getElementById("view-login");
+    const A = document.getElementById("view-app");
+    const lv = L && L.style.display !== "none" && L.offsetParent !== null;
+    const av = A && A.style.display !== "none" && A.offsetParent !== null;
+    if (lv || av) return true;                       // 有一个可见 → 正常
+    // 两个都不可见 → 强制显示（有登录记录就进主界面，否则显示登录页）
+    let sv = null;
+    try { sv = localStorage.getItem("u_login"); } catch (e) {}
+    if (sv) { if (A) A.style.display = ""; }
+    else    { if (L) L.style.display = ""; }
+    __showErr("两个界面都不可见，已强制显示兜底界面");
+    return false;
+  } catch (e) {
+    __showErr("兜底失败：" + e.message);
+    return false;
+  }
+}
+
+try { initGMap(); } catch (e) { __showErr("initGMap: " + e.message); }
+try { loadMap(); }  catch (e) { __showErr("loadMap: " + e.message); }
+try { load(); }     catch (e) { __showErr("load: " + e.message); }
+
+try {
+  const sv = localStorage.getItem("u_login");
+  if (sv) {
+    const u = JSON.parse(sv);
+    console.log("恢复登录态:", u);
+    lgApply(u);
+  } else {
+    document.getElementById("view-login").style.display = "";
+    document.getElementById("view-app").style.display = "none";
+  }
+} catch (e) {
+  __showErr("启动: " + e.message);
+  document.getElementById("view-login").style.display = "";
+  document.getElementById("view-app").style.display = "none";
+}
+try { const ld = document.getElementById("__load"); if (ld) ld.style.display = "none"; } catch (e) {}
+setTimeout(__ensureVisible, 1200);
+setTimeout(__ensureVisible, 3000);
 setInterval(load, 2000);
+setInterval(fitMap, 4000);          // 窗口大小变了要重算覆盖层
 </script>
+<div id="mdMask" onclick="if(event.target===this)closeModal()">
+  <div id="mdBox"><span class="mdclose" onclick="closeModal()">✕</span><div id="mdBody"></div></div>
+</div>
 </body>
 </html>

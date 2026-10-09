@@ -2,9 +2,14 @@
 """
 设备端 MQTT 客户端（小车 / 无人机端 通用）
 ==========================================
-连接 MQTT broker（101.37.242.91:1884），上报事件、订阅指令。
+连接 MQTT broker（地址见 config_local.py），上报事件、订阅指令。
 
 【常用命令】
+  # ★★ 无人机 GPS 位置上报（人飞的时候让平台地图上看到机在哪）
+  python3 device_client.py --role drone --gps 34.3416 108.9398            # 手动给经纬度（示例）
+  python3 device_client.py --role drone --gps-auto                        # 自动读 gpsd（每 5 秒一次）
+  python3 device_client.py --role drone --gps-auto --gps-iface wlan0      # 指定网卡/串口给 gpsd
+
   # 自检（连上、发一条就退出）
   python device_client.py --role car --test
 
@@ -24,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 
 # ★ 自动寻找依赖目录（同一份脚本在 服务器 / NX(U盘) / 小车 都能用）
@@ -47,7 +53,7 @@ def _cfg(key, default=""):
     v = getattr(_CFG, key, None) if _CFG else None
     return v if v not in (None, "") else os.getenv(key, default)
 
-BROKER = _cfg("MQTT_BROKER", "101.37.242.91")
+BROKER = _cfg("MQTT_BROKER", "你的MQTT服务器IP")
 PORT   = int(_cfg("MQTT_PORT", "1884"))
 
 # ==================== 设备身份表 ====================
@@ -120,6 +126,9 @@ def main():
     ap.add_argument("--site", help="站点号，如 1")
     ap.add_argument("--extra", help='附加字段（JSON 字符串），如 \'{"task_id":"T0001"}\'')
     ap.add_argument("--wait", type=int, default=5, help="发完后监听几秒（默认 5，用于看平台回复）")
+    ap.add_argument("--gps", nargs=2, metavar=("LAT", "LON"), help="★ 上报一次 GPS 经纬度")
+    ap.add_argument("--gps-auto", action="store_true", help="★ 自动读 GPS（gpsd）并周期性上报")
+    ap.add_argument("--gps-interval", type=float, default=5.0, help="GPS 上报间隔秒（默认 5）")
     args = ap.parse_args()
 
     cfg = DEVICES[args.role]
@@ -130,7 +139,14 @@ def main():
         sys.exit(1)
     did = cfg["device_id"]
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=did)
+    # ★★ client_id 必须唯一：常驻模式用设备号；
+    #    CLI 发事件模式加随机后缀 → 否则会跟常驻那个【互相踢下线】
+    #    （症状：反复 "连接断开 rc=Unspecified error"）
+    if args.event or args.test:
+        _cid = "%s-cli%d" % (did, int(time.time()) % 100000)
+    else:
+        _cid = did
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=_cid)
     client.username_pw_set(cfg["username"], cfg["password"])
     client.on_connect = lambda c, u, f, rc, p=None: on_connect(c, u, f, rc, p, cfg=cfg)
     client.on_message = on_message
@@ -144,9 +160,89 @@ def main():
         print("   检查：① 密码 ② 1884 端口有没有放行 ③ 网络")
         sys.exit(1)
 
+    # ---------- ★★ GPS 上报（无人机位置）----------
+    def _read_gpsd():
+        """从 gpsd 读一次经纬度；读不到返回 None。
+        需要 NX 上装了 gpsd（sudo apt install gpsd gpsd-clients python3-gps）
+        """
+        try:
+            import socket as _s
+            c = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+            c.settimeout(2.0)
+            c.connect(("127.0.0.1", 2947))
+            c.sendall(b'?WATCH={"enable":true,"json":true}\n')
+            buf = b""
+            for _ in range(20):
+                buf += c.recv(4096)
+                for line in buf.split(b"\n"):
+                    if not line.strip():
+                        continue
+                    try:
+                        j = json.loads(line.decode("utf-8", "replace"))
+                    except Exception:
+                        continue
+                    if j.get("class") == "TPV" and j.get("lat") is not None:
+                        c.close()
+                        return (float(j["lat"]), float(j["lon"]),
+                                float(j.get("alt") or 0.0))
+            c.close()
+        except Exception:
+            return None
+        return None
+
+    if args.gps or args.gps_auto:
+        client.loop_start()
+        time.sleep(1)
+        once = bool(args.gps)
+        while True:
+            if args.gps:
+                lat, lon = float(args.gps[0]), float(args.gps[1])
+                alt = 0.0
+            else:
+                g = _read_gpsd()
+                if not g:
+                    print(f"[{did}] ⚠️ 读不到 GPS（gpsd 没起？没接 GPS 模块？）—— 试 \n"
+                          f"    sudo systemctl start gpsd   或先用 --gps LAT LON 手动喂")
+                    if once:
+                        break
+                    time.sleep(args.gps_interval)
+                    continue
+                lat, lon, alt = g
+            msg = {"device": did, "role": args.role, "event": "gps",
+                   "ts": int(time.time()), "lat": round(lat, 7),
+                   "lon": round(lon, 7), "alt": round(alt, 2)}
+            client.publish(f"cjy/{did}/report", json.dumps(msg), qos=0)
+            print(f"[{did}] 📡 GPS → {msg['lat']}, {msg['lon']}（高 {msg['alt']}m）")
+            if once:
+                time.sleep(1)
+                break
+            time.sleep(args.gps_interval)
+        client.loop_stop()
+        client.disconnect()
+        return
+
     # ---------- 常驻模式 ----------
     if not args.test and not args.event:
-        print(f"[{did}] 运行中，Ctrl+C 退出")
+        print(f"[{did}] 运行中，Ctrl+C 退出（★ 每 10 秒上报心跳，平台才会显示在线）")
+
+        # ★★ 心跳线程：平台按"最后上报时间"判在线（>60 秒没上报就判离线）
+        #    所以常驻模式必须定期上报，否则界面永远不显示本设备在线 ✗
+        def _heartbeat():
+            while True:
+                time.sleep(10)
+                try:
+                    client.publish(
+                        f"cjy/{did}/report",
+                        # ★★ 用 "heartbeat" 而不是 "idle"：
+                        #    idle 会被平台当成"我空闲了 → 派任务"的信号，
+                        #    也会污染"事件记录"。心跳只是保活，单独一个名字。
+                        json.dumps({"device": did, "role": args.role,
+                                    "event": "heartbeat", "ts": int(time.time()),
+                                    "note": "heartbeat"}), qos=0)
+                except Exception:
+                    pass
+        threading.Thread(target=_heartbeat, daemon=True).start()
+
         try:
             client.loop_forever()
         except KeyboardInterrupt:
@@ -173,7 +269,7 @@ def main():
 
     topic = f"cjy/{did}/report"
     print(f"[{did}] → 上报到频道 {topic}：{json.dumps(msg, ensure_ascii=False)}")
-    c.publish(topic, json.dumps(msg, ensure_ascii=False))
+    client.publish(topic, json.dumps(msg, ensure_ascii=False))   # ★ 修：变量名是 client 不是 c
 
     # 监听一会儿，看平台有没有回指令
     print(f"[{did}] 监听 {args.wait} 秒（等平台回复）…")

@@ -62,3 +62,17 @@ def send_to_drone(drone_id: str, cmd: str, **extra) -> Dict[str, Any]:
     payload = {"cmd": cmd, "from": "web"}
     payload.update(extra)
     return publish("%s/%s/cmd" % (NS, drone_id), payload)
+
+
+def report_as_device(device_id: str, role: str, event: str, **extra) -> Dict[str, Any]:
+    """★★★ 以【设备身份上报】一条事件（发到 cjy/<id>/report）
+
+    用途：无人机是【人操作的】—— 人在网页上点"起飞/已取货/已放货"，
+    平台就替无人机发一条上报，走的是和真机上报【完全一样】的通道。
+    这样 hub.py 的既有逻辑（登记库位 / 生成任务 / 派车）全部复用，零改动 ✓
+    """
+    import time as _t
+    payload = {"device": device_id, "role": role, "event": event,
+               "ts": int(_t.time()), "from": "web"}
+    payload.update(extra)
+    return publish("%s/%s/report" % (NS, device_id), payload)

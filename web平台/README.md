@@ -58,7 +58,7 @@ cp /root/chenjiayu/web平台/server/config.example.py /root/chenjiayu/web平台/
 bash /root/chenjiayu/web平台/scripts/start_web.sh
 ```
 
-浏览器访问 `http://101.37.242.91:8000`（★ 记得在云控制台安全组放行 8000 端口）
+浏览器访问 `http://<你的服务器IP>:8000`（★ 记得在云控制台安全组放行 8000 端口）
 
 ## 接口一览
 
