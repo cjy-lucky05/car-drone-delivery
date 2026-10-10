@@ -75,12 +75,31 @@ def _cfg(key, default=""):
     v = getattr(_CFG, key, None) if _CFG else None
     return v if v not in (None, "") else os.getenv(key, default)
 
-BROKER    = _cfg("MQTT_BROKER", "你的MQTT服务器IP")
+BROKER    = _cfg("MQTT_BROKER", "")
 PORT      = int(_cfg("MQTT_PORT", "1884"))
 USERNAME  = _cfg("MQTT_USER_CAR", "cjy-car")
 PASSWORD  = _cfg("MQTT_PASS_CAR", "")
 DEVICE_ID = _cfg("DEVICE_ID_CAR", "car-01")
 NS        = _cfg("MQTT_NS", "cjy")
+# ★★★ 没读到服务器地址 → 明确报错（不然会去连字符串"你的MQTT服务器IP"，只报域名解析失败，很难查）
+if (not BROKER) or ("你的" in BROKER) or ("服务器" in BROKER):
+    rospy.logerr("[bridge] ❌ 没读到 MQTT 服务器地址（config_local.py 里缺 MQTT_BROKER）")
+    print("""
+────────────────────────────────────────────────────────────
+ [bridge] 请在 config_local.py 里补一行（换成你的服务器 IP）：
+
+     MQTT_BROKER = "1.2.3.4"
+
+ 或启动时直接用环境变量：
+
+     MQTT_BROKER=1.2.3.4 python3 -u mqtt_bridge_node.py
+
+ 【为什么要配】服务器地址属于隐私，不入代码仓库 → 代码里是空的，
+               每台机器在自己的 config_local.py 里填 ✓
+────────────────────────────────────────────────────────────
+""")
+    sys.exit(1)
+
 if not PASSWORD:
     rospy.logerr("[bridge] 未读到密码！请复制 config.example.py 为 config_local.py 并填写 MQTT_PASS_CAR")
     sys.exit(1)

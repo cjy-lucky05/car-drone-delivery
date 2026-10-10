@@ -53,7 +53,7 @@ def _cfg(key, default=""):
     v = getattr(_CFG, key, None) if _CFG else None
     return v if v not in (None, "") else os.getenv(key, default)
 
-BROKER = _cfg("MQTT_BROKER", "你的MQTT服务器IP")
+BROKER = _cfg("MQTT_BROKER", "")      # ★ 服务器地址属隐私 → 放 config_local.py（代码里留空）
 PORT   = int(_cfg("MQTT_PORT", "1884"))
 
 # ==================== 设备身份表 ====================
@@ -132,6 +132,12 @@ def main():
     args = ap.parse_args()
 
     cfg = DEVICES[args.role]
+    # ★★★ 没读到服务器地址 → 明确报错（不然会去连字符串"你的MQTT服务器IP"，只报域名解析失败）
+    if (not BROKER) or ("你的" in BROKER) or ("服务器" in BROKER):
+        print("❌ 没读到 MQTT 服务器地址（config_local.py 里缺 MQTT_BROKER）")
+        print('   请在 config_local.py 里补一行：MQTT_BROKER = "1.2.3.4"')
+        print("   或用环境变量：MQTT_BROKER=1.2.3.4 python3 device_client.py --role drone")
+        sys.exit(1)
     # ★ 没读到密码就直接报错退出（不静默用空密码，否则只表现为"认证失败"，难排查）
     if not cfg["password"]:
         print(f"⚠️ 角色 {args.role} 未读到密码！请复制 config.example.py 为 config_local.py，"
