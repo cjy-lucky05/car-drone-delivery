@@ -416,6 +416,9 @@ button.b.p:hover{background:var(--primary-d)}
 .pkitem .pdst{font-size:11.5px;color:var(--fg2)}
 .pkitem .pcode{margin-left:auto;font-size:11px;background:var(--card);border:1px dashed var(--line);
   padding:2px 7px;border-radius:9px;white-space:nowrap}
+/* ★ AR 码徽章：实心高对比（浅底/深底都看得清）—— 之前半透明浅紫配浅底，字看不清 ✗ */
+.arbadge{display:inline-block;background:#6d28d9;color:#fff;font-weight:700;
+  border-radius:9px;padding:2px 8px;font-size:11px;white-space:nowrap;margin-left:6px}
 .pkst{font-size:11px;padding:2px 8px;border-radius:9px;white-space:nowrap;
   background:var(--card);border:1px solid var(--line)}
 .pkst.PLACED{background:#fff4e5;border-color:#f0b775;color:#b06b00}
@@ -1074,6 +1077,10 @@ async function loadParcels() {
           esc(parcelWhere(p)) + '</div></span>' +
           '<span class="pkst ' + (p.status || "") + '">' + (p.status_cn || p.status || "") + '</span>' +
           (p.pick_code ? '<span class="pcode">码 ' + p.pick_code + '</span>' : '') +
+          (p.marker_id !== null && p.marker_id !== undefined && p.marker_id !== "" ?
+            '<span class="arbadge">AR ' + p.marker_id + '</span>' : '') +
+          '<button class="uact del" style="margin-left:8px" title="删除这件包裹（连同收件人信息与事件记录）"' +
+          ' onclick="event.stopPropagation();delParcelFromTrack(\'' + p.parcel_id + '\')">✖ 删除</button>' +
           '</div>';
       }).join("");
     }
@@ -1128,7 +1135,11 @@ async function selParcel(pid) {
       (p.tracking_no ? ("运单号 " + p.tracking_no + "　") : "") +
       (p.car_id ? ("小车 " + p.car_id + "　") : "") +
       (p.shelf_no ? ("货柜 " + p.shelf_no + "　") : "") +
+      (p.marker_id !== null && p.marker_id !== undefined && p.marker_id !== "" ?
+        ("<span class=\"arbadge\">AR码 " + p.marker_id + " 号</span>　") : "") +
       (p.pick_code ? ("取件码 <b>" + p.pick_code + "</b>") : "") + '</div>';
+    h += '<div style="margin:-2px 0 10px"><button class="uact del"' +
+      ' onclick="delParcelFromTrack(\'' + p.parcel_id + '\')">✖ 删除这件包裹（连收件人信息）</button></div>';
     h += '<div class="tl">';
     tl.forEach(function(t, i) {
       const up = ["parcel_in", "drone_depart", "drone_arrive"].indexOf(t.event) >= 0;
@@ -2497,6 +2508,16 @@ async function delParcel(pid, slotId){
   else{ alert("删除失败：" + (r.error||"未知错误")); }
 }
 
+
+// ★★★ 包裹跟踪页的删除入口（连收件人信息 + 事件记录一起删，用于清理测试数据）
+async function delParcelFromTrack(pid){
+  if(!confirm("确认删除包裹 " + pid + " ？\n（连它的收件人信息与事件记录一起删除，不可恢复）")) return;
+  let r = {};
+  try{ r = await (await fetch(API+"/api/parcel/"+encodeURIComponent(pid)+"/delete",
+        {method:"POST"})).json(); }catch(e){ r = {}; }
+  if(r.ok){ _selParcel = null; await loadParcels(); }
+  else{ alert("删除失败：" + (r.error || "未知错误")); }
+}
 // ★★★ 设备短名字（就写"1号小车"/"1号无人机"，不暴露 car-01 这种内部编号）
 function devLabel(d, kind){
   const nm = ((d && d.name) || "").trim();

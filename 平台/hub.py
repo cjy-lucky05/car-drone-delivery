@@ -562,7 +562,10 @@ class Platform:
             mark = "有货" if s.get("occupied") else "空"
             print(f"{sid}={mark}({s.get('count', 0)}) ", end="")
         print()
-        pending = [t for t in self.tasks.values() if t["status"] != "DONE"]
+        # ★ 兼容两种"已完成"口径（平台写 DONE；历史/其它路径可能写 delivered）
+        _done = ("DONE", "DELIVERED")
+        pending = [t for t in self.tasks.values()
+                   if str(t.get("status") or "").upper() not in _done]
         print(f"[状态] 未完成任务 {len(pending)} 个：" +
               (", ".join(f"{t['task_id']}@{t['slot']}[{t['status']}]" for t in pending) or "无"))
         qs = "，".join(f"站点{s}排队{len(v)}个" for s, v in sorted(self.queue.items()) if v)
@@ -936,19 +939,25 @@ class Platform:
             return
 
         if event == "shelf_place":
-            # ④ 机械臂把包裹放进【低层货柜】
+            # ④ 机械臂把包裹放进【目的地配送点货柜】
             pid = data.get("parcel_id") or self.car_parcel.get(device_id, "")
-            shelf = str(data.get("shelf_no") or "")
             if pid:
                 p0 = _db.get_parcel(pid) or {}
-                shelf = shelf or p0.get("shelf_no") or ""
+                _t = self.tasks.get(str(data.get("task_id") or "")) or {}
+                # ★★★ 送达后必须【改挂到配送点货柜】—— 不能沿用取货时的中转货架号 ✗
+                #     否则 PLACED 的货还占着 1A → 平台以为 1A 有货 → 巡检无限补任务 ✗
+                dst = str(data.get("dst") or p0.get("dst") or _t.get("dst") or "")
+                shelf = str(data.get("shelf_no") or "") or _db.alloc_dst_slot(dst)
                 code = p0.get("pick_code") or data.get("pick_code") or ""
+                if not shelf:
+                    shelf = str(p0.get("shelf_no") or "")      # 兜底：货柜满了还是别丢信息
                 self.set_parcel(pid, status="PLACED", event="shelf_place",
                                 detail="放入货柜 %s（取件码 %s）" % (shelf or "货柜", code),
                                 actor=device_id, placed_at=int(time.time()),
-                                **({"shelf_no": shelf} if shelf else {}))
-                print("[平台] \u2605 %s 已放入 %s → 通知 %s 凭取件码 %s 自取"
+                                **({"shelf_no": shelf, "dst": dst} if shelf else {}))
+                print("[平台] \u2605 %s 已放入【配送点货柜 %s】→ 通知 %s 凭取件码 %s 自取"
                       % (pid, shelf or "货柜", p0.get("owner") or "收件人", code))
+                print("[平台] \u2605 取货中转货架已释放（%s 不再挂着这件）" % (p0.get("shelf_no") or "?"))
             self.car_parcel.pop(device_id, None)        # ★ 这趟结束，解除绑定
             self.devices[device_id]["busy"] = False     # ★ 车这一趟完成
             self.dump_status()

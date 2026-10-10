@@ -745,6 +745,39 @@ def ensure_dst_slots():
         conn.close()
 
 
+def alloc_dst_slot(dst: str = "") -> str:
+    """★★★ 在【配送点货柜】里给目的地 dst 找一个空格子，返回 slot_id
+
+    为什么需要：送达后包裹必须【改挂到配送点货柜】，不能沿用取货时的中转货架号
+              （否则 PLACED 的货还占着 1A → 平台以为 1A 有货 → 巡检无限补任务 ✗）
+    优先该目的地自己的柜格（如 dst=图书馆楼下 → 找 图书馆楼下-*）；
+    全满返回 ""（调用方兜底）。
+    """
+    conn = _connect()
+    try:
+        _migrate(conn)
+        rows = conn.execute(
+            "SELECT slot_id, occupied FROM slots WHERE kind=? ORDER BY slot_id", ("dst",)
+        ).fetchall()
+    finally:
+        conn.close()
+    free = [r["slot_id"] for r in rows if not int(r["occupied"] or 0)]
+    # ★ 防抖：sync_slots 还没跑时，已被"在途/待取"包裹占着的格子也不能算空
+    used = set()
+    for p in list_parcels(limit=2000):
+        sn = str(p.get("shelf_no") or "")
+        if sn and str(p.get("status") or "").upper() in (
+                "AT_GATE", "PLACED", "CREATED", "LOADED", "DELIVERING"):
+            used.add(sn)
+    free = [s for s in free if s not in used]
+    d = (dst or "").strip()
+    if d:
+        mine = [s for s in free if s.startswith(d)]
+        if mine:
+            return mine[0]
+    return free[0] if free else ""
+
+
 def list_dst_slots():
     """★ 只取【配送点货柜】"""
     conn = _connect()

@@ -158,14 +158,20 @@ ARM_WAIT      = float(os.getenv("ARM_WAIT",   "2.5"))     # 每个姿态后等�
 #   要回起点：网页【🎮 小车手动操作】→ 选「返回起始点」→ 发送指令 ✓
 #   想恢复自动：AUTO_GO_HOME=1 python3 -u mqtt_bridge_node.py
 AUTO_GO_HOME = os.getenv("AUTO_GO_HOME", "0").strip() not in ("0", "false", "False", "no")
+# ★★★ 送完货后车去哪（2026-10-10 用户定：回【取货点】等下一单，不管有没有货）
+#     "pick" = 回取货点待命（默认 ✓）  "home" = 回起点  "stay" = 停在送达点
+#     旧开关仍兼容：AUTO_GO_HOME=1 等价于 AFTER_DELIVER=home
+AFTER_DELIVER = os.getenv("AFTER_DELIVER", "").strip().lower()
+if AFTER_DELIVER not in ("pick", "home", "stay"):
+    AFTER_DELIVER = "home" if AUTO_GO_HOME else "pick"
 # ★★★ 等 AR 码的最长时间（秒）：车可能比人/无人机先到，货还没摆上去
 #     2026-10-09 由 15 秒改成 120 秒（用户要求）：给人留出"把物块摆到取货点"的时间 ✓
 #     想改回去：AR_WAIT_SEC=15 python3 -u mqtt_bridge_node.py
 AR_WAIT_SEC = float(os.getenv("AR_WAIT_SEC", "120"))
-HOME_POS = (float(os.getenv("HOME_X", "-0.1222")),     # x  ★ 2026-10-09 新实验室实测
-            float(os.getenv("HOME_Y", "0.3362")),      # y
+HOME_POS = (float(os.getenv("HOME_X", "0.115")),      # x  ★ 2026-10-10 用户定的初始位置
+            float(os.getenv("HOME_Y", "0.017")),       # y
             float(os.getenv("HOME_Z", "0.0")),         # z
-            float(os.getenv("HOME_YAW", "0.3072")))    # yaw(弧度) ≈ 17.6°
+            float(os.getenv("HOME_YAW", "0.320")))     # yaw(弧度) ≈ 18.3°
 
 # 机械臂动作序列（照抄 ar_pick_place.cpp 的顺序）
 # 特殊项 "__close__" / "__open__" = 控制夹爪
@@ -349,7 +355,9 @@ class CarBridge(object):
         elif cmd == "wait":
             # ★ 货还没入库 → 原地等着（不动机械臂）
             rospy.logwarn("[bridge] 平台要求原地等待：%s（货物尚未入库）", d.get("reason", ""))
-        elif cmd == "deliver":
+        elif cmd in ("deliver", "goto_deliver"):
+            # ★ deliver = 平台派单流程；goto_deliver = 网页【手动操作】下拉里的"派车送达"
+            #   两者动作一样 → 合并，避免手动操作点了报"未知指令" ✗
             self.start_deliver(d)
         elif cmd == "go_home":
             # ★★★ 返回起始点（网页手动点，或平台自动派）
@@ -433,13 +441,32 @@ class CarBridge(object):
         slot_now = _d.get("slot") or (self.task or {}).get("slot")
         rospy.loginfo("[bridge] 平台确认货物已入库 %s → 机械臂开始取货", slot_now)
         # ★★ 走"先抬起(相机朝下) → 等 AR 码 → 识别到才抓"的流程
-        threading.Thread(target=self._pick_with_ar, daemon=True).start()
+        threading.Thread(target=self._pick_guarded, daemon=True).start()   # ★ 带异常兜底
+
+    def _pick_guarded(self):
+        """★★★ 抓取线程的【兜底包装】——抓取过程中出任何异常都要上报，不能静默消失
+
+        为什么需要：曾经因为一个属性名写错（self.arm_wait 不存在），
+                  抓取线程直接抛 AttributeError 崩掉 → 车就那么停在原地：
+                  没有日志、没有上报、平台也不知道出事了 ✗（用户现场遇到）
+        """
+        try:
+            self._pick_with_ar()
+        except Exception as e:
+            rospy.logerr("[bridge] ❌ 抓取过程异常：%s: %s", type(e).__name__, e)
+            try:
+                self.report("exception", reason="抓取过程异常（%s: %s），已停在原地等人工处置"
+                            % (type(e).__name__, e))
+            except Exception:
+                pass
+            with self.lock:
+                self.stage = "wait_deliver"          # 别卡在 pick 阶段
 
     def _pick_with_ar(self):
         """★★★ 识别到 AR 码才抓（防止抓空气）
 
-        流程：init(折叠) → sentry(抬起，相机朝下) → ★等 AR 码(最多 15 秒)
-              → 识别到 → grap(伸下去) → 夹爪闭合 → init(收回) → 完成
+        流程：init(折叠) → sentry(抬起，相机朝下) → ★等 AR 码(最多 AR_WAIT_SEC 秒)
+              → 识别到 → init(先折叠) → grap(伸下去) → 夹爪闭合 → init(收回) → 完成
               → 没识别到 → 不抓，上报 exception
         """
         tid = (self.task or {}).get("task_id")
@@ -493,6 +520,13 @@ class CarBridge(object):
             rospy.loginfo("[bridge] ✅ 识别到 AR 码 ★%s 号（距离 %.2f m）→ 货物校验通过 → 开始抓取",
                           self._marker_id if self._marker_id is not None else "?",
                           self._marker_dist or 0.0)
+            # ★★★ 照学长A callback 的原顺序：看到码后【先把机械臂折叠回 init】，
+            #     再开夹爪 → grap → 合爪 → 又折叠 → 才走
+            #     （源码原文：name_pose.data = "init"; ppub_targetnm->publish(); 状态才跳 5）
+            #     夹爪保持当前值（此时是张开 30，不影响抓取）
+            rospy.loginfo("[bridge] ★ 照原厂顺序：先回 init（折叠）再开夹爪抓取")
+            self._pub_pose("init", keep_grip=True)
+            time.sleep(ARM_WAIT)
 
         self._pub_pose("grap")
         time.sleep(ARM_WAIT)
@@ -561,6 +595,19 @@ class CarBridge(object):
         rospy.loginfo("[bridge] ★ 开始回起点 (%.2f, %.2f, yaw=%.1f°)", x, y, yaw * 180 / _m.pi)
         self.publish_goal((x, y, z, qz, qw), "起点")
 
+    def _return_to_pick(self, site):
+        # ★★★ 送完货自动【回取货点】待命（不管有没有货 —— 有货立刻能抓）
+        #     用户 2026-10-10 定：车送完就该回取货点等下一单，
+        #     而不是停在送达点／回起点（那样下一单来了还得先跑过去 ✗）
+        cfg = SITES.get(str(site or "1"))
+        if not cfg:
+            rospy.logwarn("[bridge] 站点 %s 没有坐标表 → 不回取货点", site)
+            self.stage = None
+            return
+        rospy.loginfo("[bridge] ★ 送完货 → 自动回【取货点站点%s】等下一单（不管有没有货）", site)
+        self.stage = "return_to_pick"
+        self.publish_goal(cfg["pick"], "取货点站点%s（返回待命）" % site)
+
     def _fake_arrive(self):
         """干跑模式：模拟 move_base 到达"""
         rospy.logwarn("[bridge·干跑] 假装导航到达")
@@ -576,6 +623,12 @@ class CarBridge(object):
                         reason="navigation failed %d" % msg.status.status)
 
     def on_nav_result_ok(self):
+        # ★ 送完货回取货点待命 完成
+        if getattr(self, "stage", None) == "return_to_pick":
+            rospy.loginfo("[bridge] ✅ 已回到取货点，待命等下一单")
+            self.stage = None
+            self.report("idle", note="back_to_pick")
+            return
         # ★ 回起点完成
         if getattr(self, "stage", None) == "going_home":
             rospy.loginfo("[bridge] ✅ 已回到起点，待命")
@@ -751,15 +804,18 @@ class CarBridge(object):
                 self.report("shelf_place", task_id=self.task.get("task_id"),
                             dst=(self.task or {}).get("dst") or "",
                             shelf_no=(self.task or {}).get("shelf_no") or "")
+                _site = str((self.task or {}).get("site") or "1")   # ★ 先存站点，下面 task 会清空
                 self.report("delivered", task_id=self.task.get("task_id"))
                 self.task = None
                 self.report("idle")            # ★ 空闲了，可以接下一个任务
-                # ★★★ 送完货【自动返回起始点】（不想要就把 AUTO_GO_HOME 设 0）
-                if AUTO_GO_HOME:
+                # ★★★ 送完货后去哪：pick(默认)=回取货点待命 / home=回起点 / stay=原地停
+                if AFTER_DELIVER == "pick":
+                    self._return_to_pick(_site)
+                elif AFTER_DELIVER == "home":
                     self.go_home()
                 else:
                     self.stage = None
-                    rospy.loginfo("[bridge] 已关闭自动回位（AUTO_GO_HOME=0）")
+                    rospy.loginfo("[bridge] 送完货 → 停在送达点待命（AFTER_DELIVER=stay）")
             return
         step = self._seq.pop(0)
         if step == "__close__":
