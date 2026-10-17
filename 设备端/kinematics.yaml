@@ -1,0 +1,18 @@
+# =====================================================================
+# arm_group 逆解配置（2026-10-11 修正）—— 覆盖到 arm_moveit_config/config/kinematics.yaml
+#
+# 原文件两个参数被设成【不可能成功】的值，导致 move_group 报
+#   "Unable to sample any valid states for goal tree"（目标构型 IK 采样全失败）
+#     · kinematics_solver_timeout  0.005  ← 5 毫秒，KDL 来不及迭代收敛
+#     · goal_position_tolerance    0.0001 ← 0.1 毫米，舵机臂不可能达到
+#
+# 本次只放宽这两个（外加姿态容差）；search_resolution 保持原值不动
+# 回滚：把标 ★ 的三行改回行尾注释里的原值即可
+# =====================================================================
+arm_group:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 0.1            # ★ 原值 0.005（5ms → 100ms）
+  goal_joint_tolerance: 0.001
+  goal_position_tolerance: 0.005            # ★ 原值 0.0001（0.1mm → 5mm）
+  goal_orientation_tolerance: 0.05          # ★ 原值 0.001

@@ -494,7 +494,24 @@ class Platform:
     # ---------- ★★★ 包裹 ----------
     def new_parcel(self, tracking_no="", order_no="", owner="", phone="",
                    dst="", mode="SHELF", drone_id="", shelf_no=""):
-        """建一件包裹：生成 P 编号 + 4 位取件码，返回 parcel_id"""
+        """建一件包裹：生成 P 编号 + 4 位取件码，返回 parcel_id
+
+        ★★★★★ 2026-10-17 铁律：★【先有用户，才能有包裹】
+          以前不校验 → 网页上手填手机号，填错了也不报错 →
+          包裹挂在"某用户"名下、手机号却是另一个号 →
+          用户在【我的包裹】里按手机号查，查不到（孤儿包裹）✗
+          现在：phone 必填 → 到 users 表里查 →
+            · 查到 → ★ 用表里的【真名】覆盖 owner（防止打错字/写成别名）
+            · 查不到 → 抛 ValueError，让调用方把错误报给前端，不建包裹
+        """
+        phone = str(phone or "").strip()
+        if not phone:
+            raise ValueError("建包裹失败：缺少【收件人手机号】—— 必须先有用户，才能有包裹")
+        _u = _db.get_user_by_phone(phone)
+        if not _u:
+            raise ValueError("建包裹失败：手机号 %s 不是已注册用户"
+                             "（请先到【用户管理】里添加该用户）" % phone)
+        owner = (_u.get("name") or owner or "").strip()   # ★ 用用户表里的真名
         self.parcel_seq += 1
         pid = "P%04d" % self.parcel_seq
         used = {p.get("pick_code") for p in _db.list_parcels(limit=500)}
@@ -673,6 +690,31 @@ class Platform:
                 print(f"[平台] ⚠️ 库位 {sid} 已被占用，拒绝重复投放（本次忽略）")
                 return
             count = int(data.get("count", 1))
+            # ══════════ ★★★★★ 2026-10-17：★【先有用户，才能有包裹】══════════
+            #  之前不校验 → 网页"无人机上报"里手填手机号，填错也不报错 →
+            #  包裹挂在"某用户"名下、手机号却是 <另一个手机号>（另一个人）→
+            #  用户在【我的包裹】里按手机号查永远查不到（孤儿包裹）✗
+            #  现在：投放前必须先确认收件人是【已注册用户】，
+            #        否则【不建任务、不占库位】，把原因报回前端 ✓
+            _phone = str(data.get("phone") or "").strip()
+            _user = _db.get_user_by_phone(_phone) if _phone else None
+            if not _user:
+                _msg = ("投放被拒：手机号 %s 不是已注册用户"
+                        " → 请先到【用户管理】里添加该用户，再来投放"
+                        % (_phone or "（空）"))
+                print("[平台] 🚨🚨 %s" % _msg)
+                try:
+                    _db.log_event(device_id, "drop_reject",
+                                  {"detail": _msg, "site": site, "slot": sid})
+                except Exception:
+                    pass
+                try:
+                    self.pub_cmd(client, device_id, {"cmd": "error", "reason": _msg})
+                except Exception:
+                    pass
+                return
+            _owner = (_user.get("name") or "").strip()   # ★ 用用户表里的真名，不信手填的
+            print("[平台] ★ 收件人校验通过：%s（%s）" % (_owner, _phone))
             # ★★ 目的地锁进任务（优先用无人机端填的 dst，其次走用户自己设的收货点）
             _dst = str(data.get("dst") or "")
             if not _dst:
@@ -702,8 +744,8 @@ class Platform:
             try:
                 pid = self.new_parcel(
                     tracking_no=str(data.get("tracking_no") or ""),
-                    owner=str(data.get("owner") or ""),
-                    phone=str(data.get("phone") or ""),
+                    owner=_owner,          # ★ 用用户表里的真名（校验过的）
+                    phone=_phone,          # ★ 校验过的手机号
                     dst=str(data.get("dst") or ""),
                     mode="SHELF", drone_id=device_id, shelf_no=sid)
                 # ★★★ 状态必须是 AT_GATE（已到校门口站点，等小车来取）
@@ -828,14 +870,29 @@ class Platform:
         # 目的：物流公司的轨迹到【校门口/驿站】就断了 → 这几条把"校园段"补上
         if event == "parcel_in":
             # ① 中转点工作人员把包裹挂到无人机上 → 建包裹档案
-            pid = self.new_parcel(
-                tracking_no=str(data.get("tracking_no") or ""),
-                order_no=str(data.get("order_no") or ""),
-                owner=str(data.get("owner") or data.get("name") or ""),
-                phone=str(data.get("phone") or ""),
-                dst=str(data.get("dst") or data.get("dest") or ""),
-                mode=str(data.get("mode") or "SHELF").upper(),
-                drone_id=device_id)
+            # ★★★ 2026-10-17：这里也守"先有用户"的规矩 ——
+            #     new_parcel 会校验手机号；不通过就【不建档案】，把原因报回去 ✓
+            try:
+                pid = self.new_parcel(
+                    tracking_no=str(data.get("tracking_no") or ""),
+                    order_no=str(data.get("order_no") or ""),
+                    owner=str(data.get("owner") or data.get("name") or ""),
+                    phone=str(data.get("phone") or ""),
+                    dst=str(data.get("dst") or data.get("dest") or ""),
+                    mode=str(data.get("mode") or "SHELF").upper(),
+                    drone_id=device_id)
+            except Exception as e:
+                _msg = "揽收建包裹失败：%s" % e
+                print("[平台] 🚨🚨 %s" % _msg)
+                try:
+                    _db.log_event(device_id, "parcel_reject", {"detail": _msg})
+                except Exception:
+                    pass
+                try:
+                    self.pub_cmd(client, device_id, {"cmd": "error", "reason": _msg})
+                except Exception:
+                    pass
+                return
             self.set_parcel(pid, status="ON_DRONE", event="parcel_in",
                             detail="中转点揽收挂载 → 无人机 %s" % device_id,
                             actor=device_id)

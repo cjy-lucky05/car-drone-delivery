@@ -1,0 +1,16 @@
+source /opt/ros/noetic/setup.bash && roscore
+
+source ~/catkin_ws/devel/setup.bash && roslaunch wd_robot_navigation robot_navigation.launch open_rviz:=true map_file:=$HOME/chen_car_drone/maps/lab_20261009.yaml
+
+source ~/catkin_ws/devel/setup.bash && roslaunch wd_vision bringup.launch
+
+source ~/catkin_ws/devel/setup.bash && rosnode list | grep base_control
+source ~/catkin_ws/devel/setup.bash && rosnode list | grep -c base_control
+source ~/catkin_ws/devel/setup.bash && rostopic list | grep -E "ar_pose_marker|amcl_pose|cmd_vel"
+source ~/catkin_ws/devel/setup.bash && rostopic info /cmd_vel
+
+cd ~/chen_car_drone/小车 && source ~/catkin_ws/devel/setup.bash && python3 -u mqtt_bridge_node.py
+
+rosrun image_view image_view image:=/arm_camera/image_raw
+
+cd /mnt/usb/chenjiayu/无人机 && python3 device_client.py --role drone

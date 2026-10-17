@@ -12,7 +12,7 @@
     python3 cam_web.py 8090 /arm_camera/image_raw    # 自定义端口/话题
 
 【怎么看】
-    电脑浏览器打开：  http://192.168.43.151:8088
+    电脑浏览器打开：  http://<小车IP>:8088
     （IP 换成小车的 IP；同一网络下直接开就行）
 
 【依赖】
@@ -114,7 +114,7 @@ def main():
     print("=" * 74)
     print(" 相机画面网页查看   话题 %s" % TOPIC)
     print(" ★ 电脑浏览器打开： http://<小车IP>:%d" % PORT)
-    print("   例如： http://192.168.43.151:%d" % PORT)
+    print("   例如： http://<小车IP>:%d" % PORT)
     print(" 停止：Ctrl+C")
     print("=" * 74)
 

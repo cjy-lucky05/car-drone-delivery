@@ -1,0 +1,13 @@
+<launch>
+
+      <arg name="use_rviz" default="false"/>
+      <include file="$(find wd_arm_moveit_demo)/launch/demo.launch">
+        <arg name="use_rviz" value="$(arg use_rviz)"/>
+      </include>
+      <!-- <include file="$(find wd_robot_navigation)/launch/robot_navigation.launch"/> -->
+
+  <include file="$(find wd_vision)/launch/bringup.launch"/>
+  <node name="moveit_pose" pkg="wd_arm_moveit_demo" type="moveit_pose.py" output="screen" respawn="true" />
+
+
+</launch>

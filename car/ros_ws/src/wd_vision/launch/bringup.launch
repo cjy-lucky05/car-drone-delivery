@@ -1,0 +1,7 @@
+<launch>
+
+  <include file="$(find wd_vision)/launch/ar_track.launch"/>
+  <include file="$(find wd_vision)/launch/camera.launch"/>
+
+  
+</launch>

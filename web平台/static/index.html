@@ -717,13 +717,17 @@ button.b.p:hover{background:var(--primary-d)}
               <input class="finput" id="dr-track" placeholder="运单号（选填）">
             </div>
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:6px">
-              <input class="finput" id="dr-owner" placeholder="★ 收件人姓名（必填）">
-              <input class="finput" id="dr-phone" placeholder="★ 收件人手机号（必填）">
-              <input class="finput" id="dr-dst"   placeholder="送到哪（如 3号楼）">
+              <select class="finput" id="dr-phone" onchange="drPickUser()">
+                <option value="">— 选择收件人（手机号）—</option>
+              </select>
+              <input class="finput" id="dr-owner" readonly placeholder="选手机号后自动带出">
+              <input class="finput" id="dr-dst"   placeholder="送到哪（自动带出，可改）">
               <input class="finput" id="dr-marker" placeholder="AR码序号（不填自动分配）">
             </div>
             <div class="uhint" style="margin-bottom:12px;font-size:12px">
-              ★ 收件人必填 —— 否则这件货没有主人，收件人查不到「我的包裹」<br>
+              ★★ <b>收件人只能从【用户管理】里已注册的用户中选</b> ——
+              手机号必须存在，否则这件货【挂不到任何人名下】（收件人查不到「我的包裹」）✗<br>
+              ★ 姓名自动带出（用用户表里的真名，防止打错字）<br>
               ★ AR码序号 = 贴在货物上的标签号，小车用摄像头读它来认货（不填平台自动分配）
             </div>
             <h2 style="font-size:15px;margin-top:16px">📦 机上载货</h2>
@@ -2623,6 +2627,9 @@ async function loadDronePage(){
   const lb  = document.getElementById("dr-loads");
   if(!box) return;
 
+  // ★★★★★ 2026-10-17：收件人下拉必须是【已注册用户】—— 进页面就填好
+  try { await drFillUsers(); } catch(e) {}
+
   // ★★ 无人机列表 → 填"选择无人机"下拉（可多机）
   let drones = [];
   try{
@@ -2724,12 +2731,61 @@ async function loadDronePage(){
   }).join("") : '<div class="empty">机上没有货（点上面【已取货】后这里会显示）</div>';
 }
 
+// ══════════ ★★★★★ 2026-10-17：★【先有用户，才能有包裹】══════════
+//  以前收件人姓名/手机号是【手输】，填错了也不报错 →
+//  包裹挂在"某用户"名下、手机号却是别人的号 → 收件人查不到自己的包裹 ✗
+//  现在：手机号只能从【用户管理】里已注册的用户中选，姓名自动带出 ✓
+async function drFillUsers() {
+  const sel = document.getElementById("dr-phone");
+  if (!sel) return;
+  // 用户列表没加载过就先拉一次（不一定打开过"用户管理"页）
+  if (!(_users && _users.length)) {
+    try {
+      const j = await (await fetch(API + "/api/users")).json();
+      _users = j.users || [];
+    } catch (e) { /* 拉不到就只留空选项 */ }
+  }
+  const cur = sel.value;
+  const opts = ["<option value=\"\">— 选择收件人（手机号）—</option>"];
+  (_users || []).forEach(function(u) {
+    if (!u.phone) return;
+    // 只列普通用户（管理员/无人机工作人员不是收件人）
+    if (u.role && u.role !== "user") return;
+    opts.push("<option value=\"" + esc(u.phone) + "\">" +
+      esc(u.name || "?") + "（" + esc(u.phone) + "）" +
+      (u.building ? " · " + esc(u.building) : "") + "</option>");
+  });
+  sel.innerHTML = opts.join("");
+  if (cur) sel.value = cur;
+  if (!_users || !_users.length) {
+    sel.innerHTML += "";
+    const own = document.getElementById("dr-owner");
+    if (own && !own.value) own.placeholder = "⚠ 还没有用户 —— 先去【用户管理】添加";
+  }
+}
+
+// ★ 选了手机号 → 自动带出【真名】+ 收货点（不让手输，防打错字）
+function drPickUser() {
+  const ph = (document.getElementById("dr-phone") || {}).value || "";
+  const u = (_users || []).filter(function(x) { return x.phone === ph; })[0];
+  const own = document.getElementById("dr-owner");
+  const dst = document.getElementById("dr-dst");
+  if (own) own.value = u ? (u.name || "") : "";
+  if (dst && u && !dst.value) dst.value = u.dst_point || u.building || "";
+}
+
 async function droneAct(action){
   const g = function(id){ const e = document.getElementById(id); return e ? e.value.trim() : ""; };
   // ★★★ 放货前必须填收件人（否则包裹无主 → 收件人查不到自己的货）
   if (action === "dropped") {
-    if (!g("dr-owner")) { toast("⚠️ 请先填【收件人姓名】—— 不然这件货没有主人"); return; }
-    if (!g("dr-phone")) { toast("⚠️ 请先填【收件人手机号】—— 不然收件人查不到自己的包裹"); return; }
+    if (!g("dr-phone")) {
+      toast("⚠️ 请先在【收件人】下拉里选一个用户 —— 手机号必须是【用户管理】里已注册的（先有用户，才能有包裹）");
+      return;
+    }
+    if (!g("dr-owner")) {
+      toast("⚠️ 收件人姓名没带出来 —— 请重新选一次手机号（或该用户没填姓名）");
+      return;
+    }
   }
   const btnId = {takeoff:"dr-b1", loaded:"dr-b2", dropped:"dr-b3"}[action];
   const b = btnId ? document.getElementById(btnId) : null;

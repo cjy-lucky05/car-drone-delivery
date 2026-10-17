@@ -1,0 +1,39 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="map_file" default="$(find wd_robot_navigation)/maps/map.yaml"/>
+  <arg name="simulation" default= "false"/> 
+  <arg name="planner"  default="teb" doc="opt: dwa, teb"/> 
+  <arg name="open_rviz" default="false"/>
+  <arg name="use_dijkstra" default= "true"/> 
+
+    <!-- robot with lidar -->
+    <include file="$(find wd_robot_navigation)/launch/robot_lidar.launch">
+          <!--<arg name="robot_name"            value="$(arg robot_name)"/>-->
+    </include>
+    <!-- Map server -->
+    <node pkg="map_server" name="map_server" type="map_server" args="$(arg map_file)">
+      <param name="frame_id" value="map"/>
+    </node>
+    <!-- AMCL -->
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <rosparam file="$(find wd_robot_navigation)/param/amcl_params.yaml" command="load" />
+      <param name="initial_pose_x"            value="0.0"/>
+      <param name="initial_pose_y"            value="0.0"/>
+      <param name="initial_pose_a"            value="0.0"/>
+    </node>
+
+  <!-- move_base -->
+  <include file="$(find wd_robot_navigation)/launch/move_base.launch" >
+    <arg name="planner"            value="$(arg planner)"/>
+    <arg name="simulation"            value="$(arg simulation)"/>
+    <arg name="use_dijkstra"     value="$(arg use_dijkstra)"/>
+
+  </include>
+
+  <!-- rviz -->
+  <group if="$(arg open_rviz)"> 
+    <node pkg="rviz" type="rviz" name="rviz" required="true"
+          args="-d $(find wd_robot_navigation)/rviz/navigation.rviz"/>
+  </group>
+
+</launch>

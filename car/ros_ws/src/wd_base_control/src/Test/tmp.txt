@@ -1,0 +1,8 @@
+ // 加载 MobileNetSSD 模型
+        // std::string prototxt_path = "/home/bingda/catkin_ws/src/wd_base_control/lib/trained_network/MobileNetSSD_deploy.prototxt.txt";
+        // std::string model_path = "/home/bingda/catkin_ws/src/wd_base_control/lib/trained_network/MobileNetSSD_deploy.caffemodel";
+
+
+        // 加载 MobileNetSSD 模型路径（根据实际环境调整）
+#define PROTOTXT_PATH "/home/bye/ros_car/src/wd_base_control/lib/trained_network/MobileNetSSD_deploy.prototxt.txt"
+#define MODEL_PATH "/home/bye/ros_car/src/wd_base_control/lib/trained_network/MobileNetSSD_deploy.caffemodel"

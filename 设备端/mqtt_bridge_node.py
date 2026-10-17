@@ -44,6 +44,7 @@ for _p in (os.path.expanduser("~/chen_car_drone/libs"),):
 import paho.mqtt.client as mqtt
 import rospy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import Twist
 import math
 from move_base_msgs.msg import MoveBaseActionResult
 from moveit_msgs.msg import MoveGroupActionResult
@@ -134,8 +135,8 @@ SITES = {
 ARM_POSES = {
     # ⚠️ 注意最后一位 = 夹爪（30=张开 / 135=闭合）；抓完货回 init 要保留夹爪值
     "init":   [90.0, -13.0, 230.0, -46.0, 90.0, 30.0],   # 折叠（开机基准）
-    "sentry": [90.0,  90.0,  98.0, -40.0, 90.0, 30.0],   # 抬起待命
-    "grap":   [90.0,  47.0,   0.0,  91.0, 88.0, 30.0],   # 伸下去抓
+    "sentry": [89.0, 57.0, 99.0, -37.9, 89.0, 30.0],   # 抬起待命（= arm.srdf sentry 换算）
+    "grap":   [89.0, 18.0, 84.0, 14.0, 89.0, 30.0],   # 伸下去抓（= arm.srdf grap 换算）
     "up":     [90.0,  90.0,  90.0,  90.0, 90.0, 30.0],   # 全中位（立直）
 }
 
@@ -167,7 +168,40 @@ if AFTER_DELIVER not in ("pick", "home", "stay"):
 # ★★★ 等 AR 码的最长时间（秒）：车可能比人/无人机先到，货还没摆上去
 #     2026-10-09 由 15 秒改成 120 秒（用户要求）：给人留出"把物块摆到取货点"的时间 ✓
 #     想改回去：AR_WAIT_SEC=15 python3 -u mqtt_bridge_node.py
-AR_WAIT_SEC = float(os.getenv("AR_WAIT_SEC", "120"))
+AR_WAIT_SEC = float(os.getenv("AR_WAIT_SEC", "300"))
+
+# ══════════ ★★★ 视觉对准参数（2026-10-14 实测调好的一组）══════════
+#  目标值 = "夹爪刚好能夹住物块时"读到的那两个数（示教得到，2026-10-14）
+ALIGN_ENABLE = os.getenv("ALIGN_ENABLE", "1").strip() not in ("0", "false", "False", "no")
+ALIGN_TX = float(os.getenv("ALIGN_TX", "0.0083"))      # 横向目标（相机系 x）
+ALIGN_TY = float(os.getenv("ALIGN_TY", "0.0092"))      # 上下目标（相机系 y）
+ALIGN_TOL_X = float(os.getenv("ALIGN_TOL_X", "0.008"))  # 横向容差 8mm
+ALIGN_TOL_Y = float(os.getenv("ALIGN_TOL_Y", "0.010"))  # 前后容差 10mm
+ALIGN_MAX = int(os.getenv("ALIGN_MAX", "20"))           # 最多多少步
+ALIGN_STEP = float(os.getenv("ALIGN_STEP", "0.20"))     # 每步走多久(秒)
+ALIGN_SETTLE = float(os.getenv("ALIGN_SETTLE", "0.50"))  # 每步后停多久
+ALIGN_SEEN = float(os.getenv("ALIGN_SEEN", "2.0"))      # 多久内看到过算看到
+ALIGN_KX = float(os.getenv("ALIGN_KX", "8.0"))          # 横向增益（太小会卡住）
+ALIGN_KY = float(os.getenv("ALIGN_KY", "3.0"))          # 前后增益
+ALIGN_VMAX = float(os.getenv("ALIGN_VMAX", "0.04"))     # 前后速度上限
+ALIGN_WMAX = float(os.getenv("ALIGN_WMAX", "0.20"))     # 转向速度上限
+ALIGN_MIN_RADIUS = float(os.getenv("ALIGN_MIN_RADIUS", "0.40"))  # 最小转弯半径(留余量)
+ALIGN_DIR_X = float(os.getenv("ALIGN_DIR_X", "-1.0"))   # 横向方向符号
+ALIGN_DIR_Z = float(os.getenv("ALIGN_DIR_Z", "1.0"))    # 前后方向符号
+
+# ★ 启动时是否自动把机械臂切到 init（折叠基准）
+#   关掉：ARM_INIT_ON_START=0 python3 -u mqtt_bridge_node.py
+ARM_INIT_ON_START = os.getenv("ARM_INIT_ON_START", "1").strip() not in (
+    "0", "false", "False", "no")
+
+# ══════════ ★★★ 粗对齐 dock（2026-10-14）══════════
+#  导航停位有 ±6~12cm 系统性偏差 → 物块出相机画面 → 视觉精对准失效。
+#  这里在抓之前先读 amcl 和真实目标比，偏得多就发【补偿目标】重走，迭代收敛。
+DOCK_ENABLE = os.getenv("DOCK_ENABLE", "1").strip() not in ("0", "false", "False", "no")
+DOCK_TOL = float(os.getenv("DOCK_TOL", "0.08"))    # 允许偏差 8cm（相机视野±11cm，进画面即可）
+DOCK_MAX = int(os.getenv("DOCK_MAX", "3"))         # 最多重走几轮
+DOCK_WAIT = float(os.getenv("DOCK_WAIT", "75"))    # 每轮等到达最多多少秒
+DOCK_K = float(os.getenv("DOCK_K", "0.6"))          # ★ 阻尼系数：一次只补几成（1.0=全补→实测会过冲振荡）
 HOME_POS = (float(os.getenv("HOME_X", "0.115")),      # x  ★ 2026-10-10 用户定的初始位置
             float(os.getenv("HOME_Y", "0.017")),       # y
             float(os.getenv("HOME_Z", "0.0")),         # z
@@ -193,6 +227,8 @@ class CarBridge(object):
         rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self.on_amcl_pose)
         rospy.Timer(rospy.Duration(1.0), self.report_position)      # 每 1 秒上报一次
         self.pub_named = rospy.Publisher("target_named", String, queue_size=5)
+        # ★ 视觉对准用：直接发 cmd_vel（阿克曼走小弧线，不碰 move_base）
+        self.pub_cmd = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
         rospy.Subscriber("/move_base/result", MoveBaseActionResult, self.on_nav_result)
         rospy.Subscriber("/move_group/result", MoveGroupActionResult, self.on_arm_result)
 
@@ -203,6 +239,8 @@ class CarBridge(object):
         self._expect_marker = None     # ★★★ 本次任务【期望】的码号（平台派单时下发 → 抓前校验）
         self._marker_ts = 0.0          # 最后一次看到 AR 码的时间
         self._marker_dist = None       # 距相机的距离(m)
+        self._marker_x = None          # ★ 相机系横向（视觉对准：控转向）
+        self._marker_y = None          # ★ 相机系上下（视觉对准：控前后）
         # ★ AR_REQUIRED=1（默认）：必须先识别到 AR 码才抓；=0：识别不可用时直接抓
         self.ar_required = os.getenv("AR_REQUIRED", "1").strip() not in ("0", "false", "False", "no")
         self._has_ar = False
@@ -462,6 +500,174 @@ class CarBridge(object):
             with self.lock:
                 self.stage = "wait_deliver"          # 别卡在 pick 阶段
 
+
+    # ══════════════════ ★★★★★ 视觉对准（从 car_align.py 移植）══════════════════
+    #  为什么要它：车导航到取货点的停位误差有 ±6~12cm，而夹爪容差只有 ~1.5cm，
+    #             所以"到位就抓"会经常抓空。这里在抓之前，用摄像头把物块
+    #             伺服到"示教时夹爪刚好能夹住"的那个画面位置。
+    #  怎么做：读 AR 码在【相机系】的 x / y，和示教目标比 →
+    #          · 横向偏差(dx) → 用【转向】修（车头转角 ≈ 画面横移角，1:1）
+    #          · 前后偏差(dy) → 用【前进/后退】修
+    #          两条一起给 = 走小弧线（阿克曼做不了原地转向）；
+    #          每步 0.2 秒、20Hz 连发（★ 底盘要持续收到 cmd_vel 才走）、
+    #          走完必停 0.5 秒再重新读码；进容差就算对准。
+    #  ★ 目标值 ALIGN_TX / ALIGN_TY = "夹爪刚好能夹住时"读到的那两个数（示教得到）。
+    #  ★ 前提：机械臂已在 sentry 姿态（相机朝下看得到物块）。
+    def _align_get(self):
+        """★ 判据照抄 AR 等的写法：窗口内看到过就算看到（识别本来就是断续的）"""
+        if (self._marker_x is None
+                or time.time() - self._marker_ts > ALIGN_SEEN):
+            return None
+        return (self._marker_x, self._marker_y)
+
+    def _align_send(self, v, w, secs):
+        """20Hz 连发 secs 秒，然后【连发零速】停车"""
+        t0 = time.time()
+        while time.time() - t0 < secs:
+            tw = Twist()
+            tw.linear.x = v
+            tw.angular.z = w
+            self.pub_cmd.publish(tw)
+            time.sleep(0.05)
+        for _ in range(5):
+            self.pub_cmd.publish(Twist())
+            time.sleep(0.02)
+
+    def _visual_align(self):
+        """把物块伺服到示教位置。返回 True=对准成功。"""
+        tx, ty = ALIGN_TX, ALIGN_TY
+        rospy.loginfo("[bridge] ★★ 视觉对准开始：目标 x=%+.4f y=%+.4f（容差 %.0f/%.0f mm）",
+                      tx, ty, ALIGN_TOL_X * 1000, ALIGN_TOL_Y * 1000)
+        for step in range(1, ALIGN_MAX + 1):
+            cur = None
+            for _ in range(12):                  # 最多等 6 秒拿一帧
+                cur = self._align_get()
+                if cur is not None:
+                    break
+                time.sleep(0.5)
+            if cur is None:
+                rospy.logwarn("[bridge] ⚠ 对准第 %d 步：读不到码（物块可能出画面了）", step)
+                return False
+
+            x, y = cur
+            dx, dy = x - tx, y - ty
+            ok_x = abs(dx) <= ALIGN_TOL_X
+            ok_y = abs(dy) <= ALIGN_TOL_Y
+            rospy.loginfo("[bridge]   对准第 %-2d 步  x=%+.4f y=%+.4f  Δx=%+5.1fmm Δy=%+5.1fmm  %s%s",
+                          step, x, y, dx * 1000, dy * 1000,
+                          "✓" if ok_x else "✗", "✓" if ok_y else "✗")
+
+            if ok_x and ok_y:
+                rospy.loginfo("[bridge] ★★ 视觉对准成功（%d 步）：Δx=%.1fmm Δy=%.1fmm → 开始抓取",
+                              step, dx * 1000, dy * 1000)
+                return True
+
+            # ★ 死区：已经够准的方向就不动，免得互相干扰
+            v = 0.0 if ok_y else ALIGN_DIR_Z * max(-ALIGN_VMAX, min(ALIGN_VMAX, -ALIGN_KY * dy))
+            w = 0.0 if ok_x else ALIGN_DIR_X * max(-ALIGN_WMAX, min(ALIGN_WMAX, ALIGN_KX * dx))
+
+            # ★ 阿克曼曲率约束：曲率 > 1/min_turning_radius 底盘会拒绝执行
+            #   （表现：前轮打了、后轮不走、车纹丝不动）。留 15% 余量。
+            if abs(w) > 1e-6:
+                need_v = abs(w) / (1.0 / ALIGN_MIN_RADIUS) * 1.15
+                if abs(v) < need_v:
+                    if v == 0.0:
+                        sgn = 1.0 if (dy <= 0.0 or ALIGN_DIR_Z >= 0) else -1.0
+                    else:
+                        sgn = 1.0 if v > 0 else -1.0
+                    v = sgn * need_v
+
+            rospy.loginfo("[bridge]       → 前后=%+.3f 转向=%+.3f（走 %.2fs，20Hz 连发）",
+                          v, w, ALIGN_STEP)
+            self._align_send(v, w, ALIGN_STEP)
+            time.sleep(ALIGN_SETTLE)
+
+        rospy.logwarn("[bridge] ⚠ 对准到步数上限仍未收敛 → 不硬抓，按失败处理")
+        return False
+
+
+    # ══════════════ ★★★ 粗对齐 dock（导航偏差闭环补偿）══════════════
+    #  背景：导航到取货点有 ±6~12cm 系统性偏差，物块会跑出相机画面，
+    #        后面的视觉精对准就无从下手。所以这里先"把车开回真正该在的位置"。
+    #  做法：读 /amcl_pose 和真实取货点比 → 偏差 (ex,ey) →
+    #        发新目标 = 目标 − 偏差（反方向补）→ 等到达 → 再读 → 迭代。
+    #        ★ 不能"重复走同一个点"：偏差是系统性的，重复走还是偏那里。
+    def _wait_arrive_by_pose(self, timeout):
+        """靠 poll /amcl_pose【位置连续稳定】判断到达（不动状态机，最安全）"""
+        import math as _m
+        t0 = time.time()
+        last = None
+        stable = 0
+        while time.time() - t0 < timeout:
+            time.sleep(0.5)
+            p = self.pos
+            if p is None:
+                continue
+            if last is not None and _m.hypot(p[0] - last[0], p[1] - last[1]) < 0.005:
+                stable += 1
+                if stable >= 4:          # 连续 2 秒几乎不动 = 到了
+                    return True
+            else:
+                stable = 0
+            last = p
+        return False
+
+    def _dock_to_site(self, site, label):
+        """粗对齐：把车拉到离真实目标 DOCK_TOL 以内。返回 True=已进容差"""
+        import math as _m
+        if not DOCK_ENABLE:
+            return True
+        cfg = SITES.get(str(site))
+        if not cfg:
+            rospy.logwarn("[bridge] 粗对齐：站点 %s 没坐标，跳过", site)
+            return True
+        pick = cfg.get("pick")           # ★ SITES[site] 是字典，要取 ["pick"]
+        if not pick:
+            rospy.logwarn("[bridge] 粗对齐：站点 %s 没有 pick 坐标，跳过", site)
+            return True
+        tx, ty = pick[0], pick[1]
+        qz, qw = pick[2], pick[3]        # pick = (x, y, qz, qw)
+        # ★★★★★ 阻尼补偿（2026-10-15 实测修正）：
+        #   原来一次把偏差【全补掉】（系数 1.0）→ 实测【冲过头】：
+        #     T0093: 车 1.036（偏 -31cm）→ 补到 1.664 → 实际停在 1.874（偏 +21cm）
+        #     → 再补 → 又偏 -30cm → 三轮振荡收不住。
+        #   改成：一次只补 k 成（默认 0.6），剩下的下一轮再补；而且如果
+        #   这轮偏差【反而变大】= 上轮补过头了 → k 自动减半，逐步收敛。
+        k = DOCK_K
+        prev_err = None
+        for rnd in range(1, DOCK_MAX + 1):
+            time.sleep(2.0)              # 等车停稳 + amcl 收敛
+            p = self.pos
+            if p is None:
+                rospy.logwarn("[bridge] 粗对齐：读不到 amcl_pose → 跳过")
+                return True
+            ex, ey = p[0] - tx, p[1] - ty
+            err = _m.hypot(ex, ey)
+            rospy.loginfo("[bridge] ★ 粗对齐第 %d/%d 轮：车在 (%.3f, %.3f)"
+                          "  偏差 %.1f cm（目标 %.3f, %.3f，k=%.2f）",
+                          rnd, DOCK_MAX, p[0], p[1], err * 100, tx, ty, k)
+            if err <= DOCK_TOL:
+                rospy.loginfo("[bridge] ✓ 粗对齐通过（%.1fcm ≤ %.1fcm）→ 物块该在画面里了",
+                              err * 100, DOCK_TOL * 100)
+                return True
+            # ★★★ 自适应：这轮比上轮更差 = 上轮补过头了 → 阻尼减半
+            if prev_err is not None and err > prev_err + 0.005:
+                k = max(0.2, k * 0.5)
+                rospy.logwarn("[bridge]    ⚠ 偏差反而变大（%.1f→%.1fcm）= 上轮过冲"
+                              " → 阻尼减半 k=%.2f", prev_err * 100, err * 100, k)
+            prev_err = err
+            # ★ 阻尼补偿：只补 k 成（不是全补）
+            nx, ny = tx - k * ex, ty - k * ey
+            rospy.loginfo("[bridge] → 偏 %.1fcm（补 %d%%），发【补偿目标】(%.3f, %.3f) 重走",
+                          err * 100, int(k * 100), nx, ny)
+            self.publish_goal((nx, ny, qz, qw),
+                              "%s（粗对齐第%d轮·k=%.2f）" % (label, rnd, k))
+            if not self._wait_arrive_by_pose(DOCK_WAIT):
+                rospy.logwarn("[bridge] 粗对齐：等到达超时（%.0fs）", DOCK_WAIT)
+                return False
+        rospy.logwarn("[bridge] ⚠ 粗对齐 %d 轮后仍有偏差 → 交给视觉对准试试", DOCK_MAX)
+        return False
+
     def _pick_with_ar(self):
         """★★★ 识别到 AR 码才抓（防止抓空气）
 
@@ -471,6 +677,13 @@ class CarBridge(object):
         """
         tid = (self.task or {}).get("task_id")
         slot = (self.task or {}).get("slot")
+        site = (self.task or {}).get("site")
+
+        # ★★★★★ 2026-10-14：抓之前先【粗对齐】——
+        #   导航停位有 ±6~12cm 系统性偏差，物块会出相机画面，
+        #   视觉精对准就没法做。先把车用"读数闭环"拉回真正的位置。
+        if not self.dry:
+            self._dock_to_site(site, "取货点站点%s" % site)
 
         self._pub_pose("init")
         time.sleep(ARM_WAIT)
@@ -520,10 +733,19 @@ class CarBridge(object):
             rospy.loginfo("[bridge] ✅ 识别到 AR 码 ★%s 号（距离 %.2f m）→ 货物校验通过 → 开始抓取",
                           self._marker_id if self._marker_id is not None else "?",
                           self._marker_dist or 0.0)
-            # ★★★ 照学长A callback 的原顺序：看到码后【先把机械臂折叠回 init】，
+            # ★★★ 照王明辉 callback 的原顺序：看到码后【先把机械臂折叠回 init】，
             #     再开夹爪 → grap → 合爪 → 又折叠 → 才走
             #     （源码原文：name_pose.data = "init"; ppub_targetnm->publish(); 状态才跳 5）
             #     夹爪保持当前值（此时是张开 30，不影响抓取）
+            # ★★★★★ 2026-10-14：识别到货之后【先做视觉对准】——
+            #   车停位有 ±6~12cm 误差，直接抓会抓空；这里先用车把物块
+            #   伺服到"示教时夹爪刚好能夹住"的画面位置，再让机械臂抓。
+            if ALIGN_ENABLE:
+                if self._visual_align():
+                    self._pub_pose("sentry")      # 对准过程中姿态没变，稳一下
+                    time.sleep(ARM_WAIT)
+                else:
+                    rospy.logwarn("[bridge] ⚠ 视觉对准失败 → 仍按原流程试抓一次")
             rospy.loginfo("[bridge] ★ 照原厂顺序：先回 init（折叠）再开夹爪抓取")
             self._pub_pose("init", keep_grip=True)
             time.sleep(ARM_WAIT)
@@ -667,6 +889,8 @@ class CarBridge(object):
                 m0 = msg.markers[0]
                 p = m0.pose.pose.position
                 self._marker_dist = (p.x * p.x + p.y * p.y + p.z * p.z) ** 0.5
+                self._marker_x = p.x          # ★ 视觉对准用（相机系）
+                self._marker_y = p.y
                 try:
                     self._marker_id = int(m0.id)
                 except Exception:
@@ -852,7 +1076,17 @@ def main():
         global DRY_RUN
         DRY_RUN = True
     try:
-        CarBridge(DRY_RUN).spin()
+        bridge = CarBridge(DRY_RUN)
+        # ★★★★★ 启动时先把机械臂切到 init（折叠基准）——
+        #   车断电/重启后臂可能停在任意位置，这里统一起点；
+        #   到取货点收到 pick 指令后会自动 init→sentry 抬起看货（_pick_with_ar）。
+        if ARM_INIT_ON_START and not DRY_RUN:
+            time.sleep(2.0)          # ★ 等 publisher 连上（发太早会丢）
+            bridge._pub_pose("init")
+            rospy.loginfo("[bridge] ★ 启动：机械臂已切到 init（折叠基准）"
+                          " —— 等平台派单")
+            time.sleep(ARM_WAIT)
+        bridge.spin()
     except rospy.ROSInterruptException:
         pass
 

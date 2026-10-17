@@ -1,0 +1,4 @@
+<launch>
+  <!-- 启动 human_tracking 节点 -->
+  <node pkg="wd_base_control" type="human_tracking" name="human_tracking" output="screen"/>
+</launch>
