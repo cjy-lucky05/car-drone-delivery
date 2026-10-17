@@ -1,0 +1,46 @@
+<launch>
+
+    <!--  ************** Global Parameters ***************  -->
+    <param name="/use_sim_time" value="true"/>
+
+    <!--  ************** Stage Simulator ***************  -->
+    <node pkg="stage_ros" type="stageros" name="stageros" args="$(find robot_simulation)/stage/$(env BASE_TYPE)/maze_two_robot.world">
+        <param name="base_watchdog_timeout" value="0.5"/>
+        <remap from="robot_0/base_scan" to="robot_0/scan"/>
+        <remap from="robot_1/base_scan" to="robot_1/scan"/>
+        <remap from="odom" to="odom"/>
+    </node>
+    
+    <!--  ************** Map Server **************  -->
+    <node name="map_server" pkg="map_server" type="map_server" args="$(find robot_simulation)/maps/maze.yaml" output="screen">
+        <param name="frame_id" value="map"/>
+    </node>
+
+    <!--  ************** Global Parameters ***************  -->
+    <arg name="robot0_name" default="robot_0"/>   <!-- support multi robot -->
+    <arg name="robot1_name" default="robot_1"/>   <!-- support multi robot -->
+    <!--  ************** Localization **************  -->
+    <group ns="$(arg robot0_name)">
+        <node pkg="amcl" type="amcl" name="amcl" output="screen">
+            <rosparam file="$(find robot_navigation)/param/$(env BASE_TYPE)/amcl_params.yaml" command="load" />
+            <param name="initial_pose_x"            value="1.0"/>
+            <param name="initial_pose_y"            value="1.0"/>
+            <param name="initial_pose_a"            value="0.0"/>
+            <remap from="/$(arg robot0_name)/map" to="/map" />
+            <param name="odom_frame_id" value="$(arg robot0_name)/odom"/>
+            <param name="base_frame_id" value="$(arg robot0_name)/base_footprint"/>
+        </node>
+    </group>
+
+    <group ns="$(arg robot1_name)">
+        <node pkg="amcl" type="amcl" name="amcl" output="screen">
+            <rosparam file="$(find robot_navigation)/param/$(env BASE_TYPE)/amcl_params.yaml" command="load" />
+            <param name="initial_pose_x"            value="1.0"/>
+            <param name="initial_pose_y"            value="2.0"/>
+            <param name="initial_pose_a"            value="0.0"/>
+            <remap from="/$(arg robot1_name)/map" to="/map" />
+            <param name="odom_frame_id" value="$(arg robot1_name)/odom"/>
+            <param name="base_frame_id" value="$(arg robot1_name)/base_footprint"/>
+        </node>
+    </group>
+</launch>

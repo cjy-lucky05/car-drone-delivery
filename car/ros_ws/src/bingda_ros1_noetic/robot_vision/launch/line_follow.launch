@@ -1,0 +1,27 @@
+<launch>
+
+    <arg name="h_lower" default="0"/>  
+    <arg name="s_lower" default="125"/>  
+    <arg name="v_lower" default="125"/> 
+
+    <arg name="h_upper" default="30"/>  
+    <arg name="s_upper" default="255"/>  
+    <arg name="v_upper" default="200"/>  
+    <arg name="test_mode" default="False"/>   <!-- node work in test mode or normal mode -->
+
+    <node pkg="robot_vision" name="linefollow" type="line_detector.py" output="screen">
+        <param name="h_lower"            value="$(arg h_lower)"/>
+        <param name="s_lower"            value="$(arg s_lower)"/>
+        <param name="v_lower"            value="$(arg v_lower)"/>
+        <param name="h_upper"            value="$(arg h_upper)"/>
+        <param name="s_upper"            value="$(arg s_upper)"/>
+        <param name="v_upper"            value="$(arg v_upper)"/>
+        <param name="test_mode"            value="$(arg test_mode)"/>
+        
+    </node>
+    
+    <node name="republish_mask" pkg="image_transport" type="republish" args="raw in:=mask_image compressed out:=mask_image" />
+    <node name="republish_result" pkg="image_transport" type="republish" args="raw in:=result_image compressed out:=result_image" />
+    
+
+</launch>

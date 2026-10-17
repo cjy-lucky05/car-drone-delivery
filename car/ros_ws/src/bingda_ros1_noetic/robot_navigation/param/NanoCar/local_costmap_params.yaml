@@ -1,0 +1,25 @@
+local_costmap:
+  global_frame: odom              # 改为 odom
+  robot_base_frame: base_footprint
+  update_frequency: 10.0
+  publish_frequency: 5.0
+  rolling_window: true
+  width: 4.0
+  height: 4.0
+  resolution: 0.05
+  transform_tolerance: 0.5
+  plugins:
+   - {name: static_layer,   type: "costmap_2d::StaticLayer"}
+   - {name: obstacle_layer, type: "costmap_2d::ObstacleLayer"}
+
+obstacle_layer:
+  observation_sources: laser_scan
+  laser_scan:
+    data_type: LaserScan
+    topic: /scan
+    sensor_frame: base_laser_link
+    marking: true
+    clearing: true
+    obstacle_range: 2.5
+    raytrace_range: 3.0
+    inf_is_valid: true

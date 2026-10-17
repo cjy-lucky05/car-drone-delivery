@@ -733,7 +733,7 @@ class CarBridge(object):
             rospy.loginfo("[bridge] ✅ 识别到 AR 码 ★%s 号（距离 %.2f m）→ 货物校验通过 → 开始抓取",
                           self._marker_id if self._marker_id is not None else "?",
                           self._marker_dist or 0.0)
-            # ★★★ 照王明辉 callback 的原顺序：看到码后【先把机械臂折叠回 init】，
+            # ★★★ 照既有抓取实现的先后顺序：看到码后【先把机械臂折叠回 init】，
             #     再开夹爪 → grap → 合爪 → 又折叠 → 才走
             #     （源码原文：name_pose.data = "init"; ppub_targetnm->publish(); 状态才跳 5）
             #     夹爪保持当前值（此时是张开 30，不影响抓取）

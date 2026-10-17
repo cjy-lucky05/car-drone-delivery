@@ -3,7 +3,7 @@
 """KDL 逆解测试 —— 验证"给一个末端坐标，能不能算出关节角"
 
 【为什么写它】
-  王明辉注释里说"本机没装逆解插件"造成失败。
+  既有实现注释里说"本机没装逆解插件"造成失败。
   实测：插件在（libmoveit_kdl_kinematics_plugin.so）✓ move_group 能起 ✓
   → 那问题就只剩 kinematics.yaml 里两个参数：timeout 5ms + 容差 0.1mm ✗
   这个脚本直接问 move_group 要逆解，用数据说话 ✓

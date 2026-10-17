@@ -1,0 +1,11 @@
+<launch>
+
+  <arg name="image" default="image_raw" />
+
+  <node name="face_recognition_trainer" pkg="opencv_apps" type="face_recognition_trainer.py"  output="screen">
+    <remap from="image" to="$(arg image)" />
+    <remap from="faces" to="face_detection/faces" />
+    <remap from="train" to="face_recognition/train" />
+  </node>
+
+</launch>

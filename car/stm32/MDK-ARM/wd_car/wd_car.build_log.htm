@@ -1,0 +1,140 @@
+<html>
+<body>
+<pre>
+<h1>µVision Build Log</h1>
+<h2>Tool Versions:</h2>
+IDE-Version: ¦ÌVision V5.24.2.0
+Copyright (C) 2017 ARM Ltd and ARM Germany GmbH. All rights reserved.
+License Information: A 1453769364@qq.com, A, LIC=TIVNB-2YZYQ-63IMB-291T2-IJFCF-ZT6I8
+ 
+Tool Versions:
+Toolchain:       MDK-ARM Plus  Version: 5.24.1
+Toolchain Path:  E:\keil_c51\C51\ARM\ARMCC\Bin
+C Compiler:      Armcc.exe V5.06 update 5 (build 528)
+Assembler:       Armasm.exe V5.06 update 5 (build 528)
+Linker/Locator:  ArmLink.exe V5.06 update 5 (build 528)
+Library Manager: ArmAr.exe V5.06 update 5 (build 528)
+Hex Converter:   FromElf.exe V5.06 update 5 (build 528)
+CPU DLL:         SARMCM3.DLL V5.24.1
+Dialog DLL:      DCM.DLL V1.16.0.0
+Target DLL:      STLink\ST-LINKIII-KEIL_SWO.dll V3.0.1.0
+Dialog DLL:      TCM.DLL V1.32.0.0
+ 
+<h2>Project:</h2>
+G:\ÍõÃ÷»Ô\Ô´Âë\wd_car\MDK-ARM\wd_car.uvprojx
+Project File Date:  12/19/2024
+
+<h2>Output:</h2>
+*** Using Compiler 'V5.06 update 5 (build 528)', folder: 'E:\keil_c51\C51\ARM\ARMCC\Bin'
+Rebuild target 'wd_car'
+assembling startup_stm32f303xc.s...
+compiling stm32f3xx_hal_gpio.c...
+compiling mainloop.c...
+..\Core\Src\mainloop.c(156): warning:  #550-D: variable "ucImuLastReadTick"  was set but never used
+  	uint32_t ucImuLastReadTick = 0;
+..\Core\Src\mainloop.c(244): warning:  #550-D: variable "uiSilenceTick"  was set but never used
+  	uint32_t uiSilenceTick = 0;
+..\Core\Src\mainloop.c(553): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  				if(((xImu.pfAccel[0]==0.0)&&(xImu.pfAccel[1]==0.0))||(fabs(xImu.pfAccel[2]-10))>5){
+..\Core\Src\mainloop.c(553): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  				if(((xImu.pfAccel[0]==0.0)&&(xImu.pfAccel[1]==0.0))||(fabs(xImu.pfAccel[2]-10))>5){
+..\Core\Src\mainloop.c(587): warning:  #188-D: enumerated type mixed with another type
+  				vSetServoPwm(0,1300);
+..\Core\Src\mainloop.c(594): warning:  #188-D: enumerated type mixed with another type
+  				vSetServoPwm(0,1700);
+..\Core\Src\mainloop.c(601): warning:  #188-D: enumerated type mixed with another type
+  				vSetServoPwm(0,1500);
+..\Core\Src\mainloop.c: 7 warnings, 0 errors
+compiling stm32f3xx_hal_pwr.c...
+compiling stm32f3xx_hal_flash.c...
+compiling stm32f3xx_hal_msp.c...
+compiling stm32f3xx_hal_pwr_ex.c...
+compiling stm32f3xx_hal_cortex.c...
+compiling stm32f3xx_hal_adc.c...
+compiling stm32f3xx_hal_dma.c...
+compiling stm32f3xx_hal.c...
+compiling main.c...
+compiling stm32f3xx_it.c...
+../Core/Src/stm32f3xx_it.c(371): warning:  #177-D: variable "usTempLen"  was declared but never referenced
+  	uint16_t usTempLen = 0;
+../Core/Src/stm32f3xx_it.c: 1 warning, 0 errors
+compiling stm32f3xx_hal_flash_ex.c...
+compiling stm32f3xx_hal_rcc_ex.c...
+compiling stm32f3xx_hal_rcc.c...
+compiling stm32f3xx_hal_adc_ex.c...
+compiling imu.c...
+compiling stm32f3xx_hal_exti.c...
+compiling uart_imu.c...
+compiling stm32f3xx_hal_i2c.c...
+compiling Sonar.c...
+compiling system_stm32f3xx.c...
+compiling stm32f3xx_hal_i2c_ex.c...
+compiling Indicate.c...
+compiling Motor.c...
+compiling Kinematics.c...
+..\Core\Src\APP\Kinematics.c(114): warning:  #550-D: variable "fLineYMinute"  was set but never used
+  	static float fLineXMinute,fLineYMinute,fAngleMinute;  //convert m/s to m/min
+..\Core\Src\APP\Kinematics.c(167): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  	(fAngle > 
+AX_TURN_ANGLE)?(fAngle = MAX_TURN_ANGLE):((fAngle < MIN_TURN_ANGLE)?(fAngle = MIN_TURN_ANGLE):fAngle);
+..\Core\Src\APP\Kinematics.c(173): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  	if(fAngle != 0.0)
+..\Core\Src\APP\Kinematics.c(165): warning:  #177-D: variable "fLineXMinute"  was declared but never referenced
+  	static float fLineXMinute;  //convert m/s to m/min
+..\Core\Src\APP\Kinematics.c: 4 warnings, 0 errors
+compiling PS2.c...
+..\Core\Src\APP\PS2.c(349): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			fAngleZ=-(RX/128)*0.5*fAngleScale;
+..\Core\Src\APP\PS2.c: 1 warning, 0 errors
+compiling stm32f3xx_hal_uart_ex.c...
+compiling Servo.c...
+..\Core\Src\APP\Servo.c(63): warning:  #188-D: enumerated type mixed with another type
+  	vSetServoPwm(0,pxServo->usPwm);
+..\Core\Src\APP\Servo.c: 1 warning, 0 errors
+compiling Communication.c...
+..\Core\Src\APP\Communication.c(350): warning:  #550-D: variable "fLineX"  was set but never used
+  	float fLineX,fAccelX,fAngleZ;
+..\Core\Src\APP\Communication.c(350): warning:  #550-D: variable "fAccelX"  was set but never used
+  	float fLineX,fAccelX,fAngleZ;
+..\Core\Src\APP\Communication.c(350): warning:  #550-D: variable "fAngleZ"  was set but never used
+  	float fLineX,fAccelX,fAngleZ;
+..\Core\Src\APP\Communication.c: 3 warnings, 0 errors
+compiling stm32f3xx_hal_tim_ex.c...
+compiling stm32f3xx_hal_tim.c...
+compiling stm32f3xx_hal_uart.c...
+compiling Battery.c...
+compiling uart_servo.c...
+compiling bsp_encoder.c...
+compiling bsp_servo.c...
+compiling ws2812.c...
+compiling bsp_motor.c...
+linking...
+Program Size: Code=47828 RO-data=892 RW-data=452 ZI-data=7180  
+FromELF: creating hex file...
+"wd_car\wd_car.axf" - 0 Error(s), 17 Warning(s).
+
+<h2>Software Packages used:</h2>
+
+Package Vendor: ARM
+                http://www.keil.com/pack/ARM.CMSIS.5.0.1.pack
+                ARM.CMSIS.5.0.1
+                CMSIS (Cortex Microcontroller Software Interface Standard)
+   * Component: CORE Version: 5.0.1
+
+Package Vendor: Keil
+                http://www.keil.com/pack/Keil.STM32F3xx_DFP.2.1.0.pack
+                Keil.STM32F3xx_DFP.2.1.0
+                STMicroelectronics STM32F3 Series Device Support and Examples
+
+<h2>Collection of Component include folders:</h2>
+  .\RTE\_wd_car
+  E:\keil_c51\C51\ARM\PACK\ARM\CMSIS\5.0.1\CMSIS\Include
+  E:\keil_c51\C51\ARM\PACK\Keil\STM32F3xx_DFP\2.1.0\Drivers\CMSIS\Device\ST\STM32F3xx\Include
+
+<h2>Collection of Component Files used:</h2>
+
+   * Component: ARM::CMSIS:CORE:5.0.1
+Build Time Elapsed:  00:00:19
+</pre>
+</body>
+</html>

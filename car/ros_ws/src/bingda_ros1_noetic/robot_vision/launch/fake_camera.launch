@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="robot_vision" name="fake_camera" type="fake_camera.py" output="screen">
+        <param name="image_path" value="$(find robot_vision)/data/bingda.png" />
+    </node>
+</launch>
